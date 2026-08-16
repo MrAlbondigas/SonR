@@ -1,0 +1,45 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: proyecto_cyber
+      POSTGRES_USER: cyber
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cyber -d proyecto_cyber"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://cyber:${DB_PASSWORD}@db:5432/proyecto_cyber
+      JWT_SECRET: ${JWT_SECRET}
+      SCANNER_API_KEY: ${SCANNER_API_KEY}
+      ADMIN_USERNAME: ${ADMIN_USERNAME}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    ports:
+      - "8000:8000"
+
+  scanner:
+    build: ./scanner
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      - api
+    environment:
+      API_URL: http://localhost:8000
+      SCANNER_API_KEY: ${SCANNER_API_KEY}
+      SCAN_INTERVAL_SECONDS: 300
+
+volumes:
+  db_data:

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Proyecto Cyber - Login</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; display: flex; height: 100vh; align-items: center; justify-content: center; margin: 0; }
+  form { background: #1e293b; padding: 2rem; border-radius: 8px; width: 280px; }
+  h1 { font-size: 1.2rem; margin-bottom: 1rem; }
+  input { width: 100%; padding: 0.5rem; margin-bottom: 0.75rem; border-radius: 4px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; box-sizing: border-box; }
+  button { width: 100%; padding: 0.6rem; border: none; border-radius: 4px; background: #2563eb; color: white; cursor: pointer; }
+  #error { color: #f87171; font-size: 0.85rem; min-height: 1.2rem; }
+</style>
+</head>
+<body>
+<form id="login-form">
+  <h1>Proyecto Cyber</h1>
+  <input type="text" id="username" placeholder="Usuario" required>
+  <input type="password" id="password" placeholder="Contraseña" required>
+  <div id="error"></div>
+  <button type="submit">Entrar</button>
+</form>
+<script>
+document.getElementById("login-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const username = document.getElementById("username").value;
+  const password = document.getElementById("password").value;
+  const res = await fetch("/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  if (res.ok) {
+    window.location.href = "/";
+  } else {
+    document.getElementById("error").textContent = "Credenciales inválidas";
+  }
+});
+</script>
+</body>
+</html>

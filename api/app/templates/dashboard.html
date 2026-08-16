@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Proyecto Cyber - Dashboard</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; padding: 2rem; }
+  header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+  h1 { font-size: 1.3rem; margin: 0; }
+  table { width: 100%; border-collapse: collapse; background: #1e293b; border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 0.6rem 1rem; border-bottom: 1px solid #334155; }
+  th { background: #111827; font-size: 0.8rem; text-transform: uppercase; color: #94a3b8; }
+  tr:last-child td { border-bottom: none; }
+  .muted { color: #64748b; }
+  .badge { background: #2563eb; color: white; border-radius: 999px; padding: 0.15rem 0.6rem; font-size: 0.75rem; }
+  a.logout { color: #94a3b8; text-decoration: none; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Proyecto Cyber — Inventario de red</h1>
+  <div>
+    <span class="muted">{{ username }}</span>
+    &nbsp;|&nbsp;
+    <a class="logout" href="#" onclick="fetch('/auth/logout', {method:'POST'}).then(() => location.href='/login')">Cerrar sesión</a>
+  </div>
+</header>
+<table>
+  <thead>
+    <tr><th>IP</th><th>Hostname</th><th>MAC</th><th>SO estimado</th><th>Software detectado</th><th>Última vez visto</th></tr>
+  </thead>
+  <tbody>
+    {% for h in hosts %}
+    <tr>
+      <td>{{ h.ip }}</td>
+      <td>{{ h.hostname or "—" }}</td>
+      <td class="muted">{{ h.mac or "—" }}</td>
+      <td>{{ h.os_guess or "—" }}</td>
+      <td><span class="badge">{{ h.software|length }}</span></td>
+      <td class="muted">{{ h.last_seen }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" class="muted">Todavía no hay escaneos. El escáner corre cada pocos minutos.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+</body>
+</html>
