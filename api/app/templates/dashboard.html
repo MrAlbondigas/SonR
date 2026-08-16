@@ -904,7 +904,7 @@
     }
 
     function initNodes() {
-      const count = Math.max(24, Math.min(70, Math.floor((w * h) / 22000)));
+      const count = Math.max(20, Math.min(45, Math.floor((w * h) / 34000)));
       nodes = Array.from({ length: count }, () => ({
         x: Math.random() * w,
         y: Math.random() * h,
@@ -913,21 +913,27 @@
       }));
     }
 
+    const maxDist = 140;
+    const maxDistSq = maxDist * maxDist;
+    let rafId = null;
+    let paused = false;
+
     function step() {
+      rafId = null;
       ctx.clearRect(0, 0, w, h);
       for (const n of nodes) {
         n.x += n.vx; n.y += n.vy;
         if (n.x < 0 || n.x > w) n.vx *= -1;
         if (n.y < 0 || n.y > h) n.vy *= -1;
       }
-      const maxDist = 140;
+      ctx.lineWidth = 1;
       for (let i = 0; i < nodes.length; i++) {
         for (let j = i + 1; j < nodes.length; j++) {
           const dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < maxDist) {
+          const distSq = dx * dx + dy * dy;
+          if (distSq < maxDistSq) {
+            const dist = Math.sqrt(distSq);
             ctx.strokeStyle = "rgba(57,135,229," + (0.12 * (1 - dist / maxDist)) + ")";
-            ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.moveTo(nodes[i].x, nodes[i].y);
             ctx.lineTo(nodes[j].x, nodes[j].y);
@@ -935,20 +941,23 @@
           }
         }
       }
+      ctx.fillStyle = "rgba(57,135,229,0.45)";
       for (const n of nodes) {
-        ctx.fillStyle = "rgba(57,135,229,0.45)";
         ctx.beginPath();
         ctx.arc(n.x, n.y, 1.6, 0, Math.PI * 2);
         ctx.fill();
       }
-      if (!reduceMotion) requestAnimationFrame(step);
+      if (!reduceMotion && !paused) rafId = requestAnimationFrame(step);
     }
 
     resize();
     initNodes();
     window.addEventListener("resize", () => { resize(); initNodes(); });
-    step();
-    if (reduceMotion) { /* draw a single static frame, no loop */ }
+    document.addEventListener("visibilitychange", () => {
+      paused = document.hidden;
+      if (!paused && !reduceMotion && rafId === null) rafId = requestAnimationFrame(step);
+    });
+    if (!reduceMotion) step();
   })();
 </script>
 </body>
