@@ -28,6 +28,10 @@
   .event-new_service { border-left: 3px solid #3b82f6; }
   .event-version_change { border-left: 3px solid #eab308; }
   .event-critical_vuln { border-left: 3px solid #ef4444; }
+  .event-default_credentials { border-left: 3px solid #dc2626; }
+  .attack-path { background: #1e293b; border-radius: 8px; padding: 0.9rem 1rem; margin-bottom: 0.6rem; border-left: 4px solid #ef4444; }
+  .attack-path .host { font-weight: 600; }
+  .attack-path .entry { color: #fca5a5; font-size: 0.85rem; }
 </style>
 </head>
 <body>
@@ -64,7 +68,7 @@
 <h2>Inventario de equipos</h2>
 <table>
   <thead>
-    <tr><th>IP</th><th>Hostname</th><th>MAC</th><th>SO estimado</th><th>Software detectado</th><th>Última vez visto</th></tr>
+    <tr><th>IP</th><th>Hostname</th><th>MAC</th><th>Fabricante</th><th>SO estimado</th><th>Software detectado</th><th>Última vez visto</th></tr>
   </thead>
   <tbody>
     {% for h in hosts %}
@@ -72,15 +76,27 @@
       <td>{{ h.ip }}</td>
       <td>{{ h.hostname or "—" }}</td>
       <td class="muted">{{ h.mac or "—" }}</td>
+      <td>{{ h.vendor or "—" }}</td>
       <td>{{ h.os_guess or "—" }}</td>
       <td><span class="badge">{{ h.software|length }}</span></td>
       <td class="muted">{{ h.last_seen }}</td>
     </tr>
     {% else %}
-    <tr><td colspan="6" class="muted">Todavía no hay escaneos. El escáner corre cada pocos minutos.</td></tr>
+    <tr><td colspan="7" class="muted">Todavía no hay escaneos. El escáner corre cada pocos minutos.</td></tr>
     {% endfor %}
   </tbody>
 </table>
+
+<h2>Rutas de ataque</h2>
+{% for p in attack_paths %}
+<div class="attack-path">
+  <div class="host">{{ p.host_ip }}</div>
+  <div class="entry">Vía: {{ p.entry_points|join(" · ") }}</div>
+  <div>{{ p.description }}</div>
+</div>
+{% else %}
+<p class="muted">No se detectaron rutas de ataque explotables por ahora (sin credenciales por defecto ni CVEs críticos confirmados).</p>
+{% endfor %}
 
 <h2>Timeline de cambios</h2>
 <ul class="timeline">

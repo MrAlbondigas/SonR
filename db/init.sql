@@ -10,6 +10,7 @@ CREATE TABLE hosts (
     id SERIAL PRIMARY KEY,
     ip TEXT UNIQUE NOT NULL,
     mac TEXT,
+    vendor TEXT,
     hostname TEXT,
     os_guess TEXT,
     first_seen TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -62,6 +63,18 @@ CREATE TABLE events (
     occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE credential_findings (
+    id SERIAL PRIMARY KEY,
+    host_id INTEGER NOT NULL REFERENCES hosts(id) ON DELETE CASCADE,
+    port INTEGER NOT NULL,
+    service TEXT NOT NULL,
+    username TEXT NOT NULL,
+    password TEXT NOT NULL,
+    found_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (host_id, port, username)
+);
+
 CREATE INDEX idx_software_host ON software(host_id);
 CREATE INDEX idx_vuln_software ON vulnerabilities(software_id);
 CREATE INDEX idx_events_occurred ON events(occurred_at DESC);
+CREATE INDEX idx_credfindings_host ON credential_findings(host_id);

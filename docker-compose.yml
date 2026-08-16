@@ -52,5 +52,15 @@ services:
       CHECK_INTERVAL_SECONDS: 600
       NVD_API_KEY: ${NVD_API_KEY:-}
 
+  credcheck:
+    build: ./credcheck
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      API_URL: http://api:8000
+      SCANNER_API_KEY: ${SCANNER_API_KEY}
+      CHECK_INTERVAL_SECONDS: 1800
+
 volumes:
   db_data:

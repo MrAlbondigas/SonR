@@ -36,3 +36,11 @@ class VulnerabilityIn(BaseModel):
 class VulnerabilityIngest(BaseModel):
     software_id: int
     vulnerabilities: list[VulnerabilityIn]
+
+
+class CredentialFindingIn(BaseModel):
+    host_id: int
+    port: int
+    service: str
+    username: str
+    password: str

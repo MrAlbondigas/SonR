@@ -21,12 +21,16 @@ class Host(Base):
     id = Column(Integer, primary_key=True)
     ip = Column(Text, unique=True, nullable=False)
     mac = Column(Text)
+    vendor = Column(Text)
     hostname = Column(Text)
     os_guess = Column(Text)
     first_seen = Column(TIMESTAMP(timezone=True), server_default=func.now())
     last_seen = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     software = relationship("Software", back_populates="host", cascade="all, delete-orphan")
+    credential_findings = relationship(
+        "CredentialFinding", back_populates="host", cascade="all, delete-orphan"
+    )
 
 
 class Scan(Base):
@@ -80,3 +84,17 @@ class Event(Base):
     event_type = Column(Text, nullable=False)
     description = Column(Text, nullable=False)
     occurred_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+
+class CredentialFinding(Base):
+    __tablename__ = "credential_findings"
+
+    id = Column(Integer, primary_key=True)
+    host_id = Column(Integer, ForeignKey("hosts.id", ondelete="CASCADE"), nullable=False)
+    port = Column(Integer, nullable=False)
+    service = Column(Text, nullable=False)
+    username = Column(Text, nullable=False)
+    password = Column(Text, nullable=False)
+    found_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    host = relationship("Host", back_populates="credential_findings")

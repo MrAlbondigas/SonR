@@ -1,6 +1,7 @@
 import os
 from datetime import datetime, timedelta, timezone
 
+import requests
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -16,6 +17,16 @@ app = FastAPI(title="Proyecto Cyber - Network Vulnerability Scanner")
 templates = Jinja2Templates(directory="app/templates")
 
 SCANNER_API_KEY = os.environ["SCANNER_API_KEY"]
+
+
+def lookup_vendor(mac: str) -> str | None:
+    try:
+        resp = requests.get(f"https://api.macvendors.com/{mac}", timeout=4)
+        if resp.status_code == 200:
+            return resp.text.strip()
+    except requests.RequestException:
+        pass
+    return None
 
 
 @app.on_event("startup")
@@ -73,6 +84,7 @@ def list_hosts(db: Session = Depends(get_db), user: models.User = Depends(auth.g
             "id": h.id,
             "ip": h.ip,
             "mac": h.mac,
+            "vendor": h.vendor,
             "hostname": h.hostname,
             "os_guess": h.os_guess,
             "last_seen": h.last_seen,
@@ -93,8 +105,13 @@ def get_host(
         "id": host.id,
         "ip": host.ip,
         "mac": host.mac,
+        "vendor": host.vendor,
         "hostname": host.hostname,
         "os_guess": host.os_guess,
+        "credential_findings": [
+            {"port": c.port, "service": c.service, "username": c.username, "password": c.password}
+            for c in host.credential_findings
+        ],
         "software": [
             {
                 "id": s.id,
@@ -140,7 +157,9 @@ def ingest_scan(payload: schemas.ScanIngest, db: Session = Depends(get_db)):
                     description=f"Nuevo equipo detectado en la red: {host_in.ip}",
                 )
             )
-        host.mac = host_in.mac or host.mac
+        if host_in.mac and (host_in.mac != host.mac or host.vendor is None):
+            host.mac = host_in.mac
+            host.vendor = lookup_vendor(host_in.mac)
         host.hostname = host_in.hostname or host.hostname
         host.os_guess = host_in.os_guess or host.os_guess
         host.last_seen = func.now()
@@ -240,6 +259,53 @@ def ingest_vulnerabilities(payload: schemas.VulnerabilityIngest, db: Session = D
     return {"software_id": software.id, "new_vulnerabilities": new_count}
 
 
+# --- Credenciales por defecto (usado por el servicio credcheck) ---
+
+
+@app.get("/targets", dependencies=[Depends(verify_scanner_key)])
+def list_targets(db: Session = Depends(get_db)):
+    hosts = db.query(models.Host).all()
+    result = []
+    for h in hosts:
+        already_cracked_ports = {c.port for c in h.credential_findings}
+        services = [
+            {"port": s.port, "name": s.name}
+            for s in h.software
+            if s.port in (21, 22, 80, 8080) and s.port not in already_cracked_ports
+        ]
+        if services:
+            result.append({"host_id": h.id, "ip": h.ip, "services": services})
+    return result
+
+
+@app.post("/credentials/ingest", dependencies=[Depends(verify_scanner_key)])
+def ingest_credential(payload: schemas.CredentialFindingIn, db: Session = Depends(get_db)):
+    existing = (
+        db.query(models.CredentialFinding)
+        .filter(
+            models.CredentialFinding.host_id == payload.host_id,
+            models.CredentialFinding.port == payload.port,
+            models.CredentialFinding.username == payload.username,
+        )
+        .first()
+    )
+    if existing is None:
+        db.add(models.CredentialFinding(**payload.model_dump()))
+        host = db.query(models.Host).filter(models.Host.id == payload.host_id).first()
+        db.add(
+            models.Event(
+                host_id=payload.host_id,
+                event_type="default_credentials",
+                description=(
+                    f"Credenciales por defecto validas en {host.ip if host else payload.host_id} "
+                    f"puerto {payload.port} ({payload.service}): {payload.username}/{payload.password}"
+                ),
+            )
+        )
+        db.commit()
+    return {"ok": True}
+
+
 # --- Timeline y priorizacion ---
 
 
@@ -281,6 +347,56 @@ def list_priorities(db: Session = Depends(get_db), user: models.User = Depends(a
     ]
 
 
+def compute_attack_paths(db: Session) -> list[dict]:
+    hosts = db.query(models.Host).all()
+    total_hosts = len(hosts)
+    paths = []
+
+    for host in hosts:
+        critical_vulns = [
+            v
+            for s in host.software
+            for v in s.vulnerabilities
+            if v.known_exploited or (v.cvss or 0) >= 9.0
+        ]
+        weak_creds = host.credential_findings
+
+        if not critical_vulns and not weak_creds:
+            continue
+
+        entry_points = []
+        if weak_creds:
+            entry_points.append(
+                f"credenciales por defecto en puerto {weak_creds[0].port} ({weak_creds[0].service})"
+            )
+        if critical_vulns:
+            entry_points.append(f"{critical_vulns[0].cve_id} en {critical_vulns[0].software.name}")
+
+        others = total_hosts - 1
+        description = (
+            f"Un atacante que comprometa {host.ip} vía {' o '.join(entry_points)} "
+            f"queda dentro de la misma red local sin segmentación detectada, "
+            f"con visibilidad directa sobre los otros {others} equipos de la red "
+            f"(sin necesidad de saltar por ningún firewall interno)."
+        )
+        paths.append(
+            {
+                "host_ip": host.ip,
+                "host_id": host.id,
+                "entry_points": entry_points,
+                "description": description,
+                "severity": "critical" if weak_creds or any(v.known_exploited for v in critical_vulns) else "high",
+            }
+        )
+
+    return paths
+
+
+@app.get("/attack-paths")
+def list_attack_paths(db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
+    return compute_attack_paths(db)
+
+
 # --- Dashboard ---
 
 
@@ -303,6 +419,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         .limit(5)
         .all()
     )
+    attack_paths = compute_attack_paths(db)
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -310,6 +427,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "hosts": hosts,
             "events": events,
             "priorities": priorities,
+            "attack_paths": attack_paths,
             "username": payload["sub"],
         },
     )
