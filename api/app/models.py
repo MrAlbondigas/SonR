@@ -42,6 +42,15 @@ class Scan(Base):
     status = Column(Text, nullable=False, default="running")
 
 
+class DemoRecord(Base):
+    __tablename__ = "demo_records"
+
+    id = Column(Integer, primary_key=True)
+    table_name = Column(Text, nullable=False)
+    record_id = Column(Integer, nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+
 class ScanRequest(Base):
     __tablename__ = "scan_requests"
 

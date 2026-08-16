@@ -524,6 +524,103 @@ def download_latest_report(user: models.User = Depends(auth.get_current_user)):
     return FileResponse(path, media_type="application/pdf", filename="proyecto-cyber-reporte.pdf")
 
 
+# --- Datos de demostracion (reversibles) ---
+
+
+@app.get("/demo/status")
+def demo_status(db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
+    count = db.query(models.DemoRecord).count()
+    return {"active": count > 0}
+
+
+@app.post("/demo/seed")
+def seed_demo_data(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
+    hosts = db.query(models.Host).order_by(models.Host.ip).all()
+    if not hosts:
+        raise HTTPException(status_code=400, detail="Necesitas al menos un equipo escaneado antes de generar datos de ejemplo")
+
+    # ya hay datos demo activos, no duplicar
+    if db.query(models.DemoRecord).first():
+        return {"ok": True, "already_seeded": True}
+
+    host_a = hosts[0]
+    host_b = hosts[1] if len(hosts) > 1 else hosts[0]
+
+    demo_software = models.Software(
+        host_id=host_a.id,
+        name="PAN-OS GlobalProtect (DEMO)",
+        version="11.1.2",
+        port=4443,
+    )
+    db.add(demo_software)
+    db.flush()
+    db.add(models.DemoRecord(table_name="software", record_id=demo_software.id))
+
+    demo_vuln = models.Vulnerability(
+        software_id=demo_software.id,
+        cve_id="CVE-2024-3400",
+        cvss=10.0,
+        severity="critical",
+        description="[DEMO] Inyeccion de comandos no autenticada en la interfaz de gestion. Permite ejecucion remota de codigo.",
+        remediation="[DEMO] Actualizar a la ultima version y revisar logs de acceso en busca de indicadores de compromiso.",
+        known_exploited=True,
+    )
+    db.add(demo_vuln)
+    db.flush()
+    db.add(models.DemoRecord(table_name="vulnerabilities", record_id=demo_vuln.id))
+
+    demo_cred = models.CredentialFinding(
+        host_id=host_b.id,
+        port=23,
+        service="telnet (DEMO)",
+        username="admin",
+        password="admin",
+    )
+    db.add(demo_cred)
+    db.flush()
+    db.add(models.DemoRecord(table_name="credential_findings", record_id=demo_cred.id))
+
+    demo_event_1 = models.Event(
+        host_id=host_a.id,
+        event_type="critical_vuln",
+        description=f"[DEMO] Vulnerabilidad con exploit publico conocido en {demo_software.name}: {demo_vuln.cve_id}",
+    )
+    demo_event_2 = models.Event(
+        host_id=host_b.id,
+        event_type="default_credentials",
+        description=f"[DEMO] Credenciales por defecto validas en {host_b.ip} puerto 23 (telnet): admin/admin",
+    )
+    db.add(demo_event_1)
+    db.add(demo_event_2)
+    db.flush()
+    db.add(models.DemoRecord(table_name="events", record_id=demo_event_1.id))
+    db.add(models.DemoRecord(table_name="events", record_id=demo_event_2.id))
+
+    db.commit()
+    return {"ok": True, "already_seeded": False}
+
+
+@app.post("/demo/clear")
+def clear_demo_data(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
+    records = db.query(models.DemoRecord).all()
+    table_map = {
+        "software": models.Software,
+        "vulnerabilities": models.Vulnerability,
+        "credential_findings": models.CredentialFinding,
+        "events": models.Event,
+    }
+    for record in records:
+        model_cls = table_map.get(record.table_name)
+        if model_cls is None:
+            continue
+        row = db.query(model_cls).filter(model_cls.id == record.record_id).first()
+        if row is not None:
+            db.delete(row)
+    db.query(models.DemoRecord).delete()
+    db.commit()
+    return {"ok": True, "removed": len(records)}
+
+
 # --- Dashboard ---
 
 
@@ -576,6 +673,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     pending_scan_request = (
         db.query(models.ScanRequest).filter(models.ScanRequest.consumed_at.is_(None)).first()
     )
+    demo_active = db.query(models.DemoRecord).first() is not None
 
     return templates.TemplateResponse(
         "dashboard.html",
@@ -592,6 +690,8 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "latest_scan": latest_scan,
             "recent_scans": recent_scans,
             "pending_scan_request": pending_scan_request is not None,
+            "demo_active": demo_active,
+            "is_admin": payload.get("role") == "admin",
             "username": payload["sub"],
         },
     )

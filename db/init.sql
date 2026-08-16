@@ -74,6 +74,13 @@ CREATE TABLE credential_findings (
     UNIQUE (host_id, port, username)
 );
 
+CREATE TABLE demo_records (
+    id SERIAL PRIMARY KEY,
+    table_name TEXT NOT NULL,
+    record_id INTEGER NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE scan_requests (
     id SERIAL PRIMARY KEY,
     requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),

@@ -25,6 +25,8 @@
 
     --series-blue:    #3987e5;
     --series-aqua:    #199e70;
+
+    --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
   }
 
   * { box-sizing: border-box; }
@@ -54,6 +56,29 @@
   }
 
   #bg-net { position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.55; }
+
+  /* Faint technical grid + scan-line sweep, both purely decorative */
+  .bg-grid {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(57,135,229,0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(57,135,229,0.05) 1px, transparent 1px);
+    background-size: 42px 42px;
+    mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, black 40%, transparent 90%);
+  }
+  .bg-sweep {
+    position: fixed; left: 0; right: 0; height: 140px; z-index: 0; pointer-events: none;
+    background: linear-gradient(to bottom, transparent, rgba(57,135,229,0.10) 45%, rgba(57,135,229,0.22) 50%, rgba(57,135,229,0.10) 55%, transparent);
+    animation: sweep-down 9s ease-in-out infinite;
+  }
+  @keyframes sweep-down {
+    0%   { top: -140px; opacity: 0; }
+    6%   { opacity: 1; }
+    50%  { opacity: 1; }
+    94%  { opacity: 1; }
+    100% { top: 100%; opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) { .bg-sweep { animation: none; display: none; } }
 
   a { color: inherit; }
 
@@ -137,13 +162,24 @@
     border-radius: 10px; padding: 1rem 1.1rem;
     border-left: 3px solid var(--tile-accent, var(--baseline));
     transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    position: relative;
   }
+  .stat-tile::after {
+    content: ""; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px;
+    border-top: 1.5px solid var(--tile-accent, var(--border)); border-right: 1.5px solid var(--tile-accent, var(--border));
+    opacity: 0.55; transition: opacity 0.18s ease;
+  }
+  .stat-tile:hover::after { opacity: 1; }
   .stat-tile:hover {
     transform: translateY(-3px);
     box-shadow: 0 10px 24px -12px rgba(0,0,0,0.6), 0 0 0 1px var(--tile-accent, var(--border));
   }
-  .stat-tile .value { font-size: 1.9rem; font-weight: 650; letter-spacing: -0.02em; }
-  .stat-tile .label { font-size: 0.78rem; color: var(--text-muted); margin-top: 0.15rem; }
+  .stat-tile .value {
+    font-family: var(--font-mono); font-size: 1.9rem; font-weight: 650; letter-spacing: -0.01em;
+    color: var(--tile-accent, var(--text-primary));
+    text-shadow: 0 0 18px color-mix(in srgb, var(--tile-accent, transparent) 45%, transparent);
+  }
+  .stat-tile .label { font-size: 0.78rem; color: var(--text-muted); margin-top: 0.2rem; }
 
   /* Severity chart */
   .sev-chart {
@@ -157,7 +193,7 @@
   .sev-dot { width: 8px; height: 8px; border-radius: 2px; flex: none; background: var(--dot-color); }
   .sev-track { background: var(--gridline); border-radius: 4px; height: 10px; overflow: hidden; }
   .sev-fill { height: 100%; border-radius: 4px; background: var(--dot-color); min-width: 3px; transition: width 0.6s cubic-bezier(.2,.8,.2,1); }
-  .sev-count { font-variant-numeric: tabular-nums; font-size: 0.82rem; color: var(--text-secondary); text-align: right; }
+  .sev-count { font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 0.82rem; color: var(--text-secondary); text-align: right; }
 
   /* Tables */
   table { width: 100%; border-collapse: collapse; background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
@@ -169,7 +205,7 @@
   tbody tr:hover { background: rgba(57,135,229,0.06); }
   tr:last-child td { border-bottom: none; }
   td.muted, .muted { color: var(--text-muted); }
-  td.num { font-variant-numeric: tabular-nums; }
+  td.num { font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 0.8rem; }
 
   .badge {
     display: inline-flex; align-items: center; gap: 0.35rem;
@@ -223,6 +259,28 @@
   .event-critical_vuln      { border-left-color: var(--status-critical); }
   .event-default_credentials{ border-left-color: var(--status-critical); }
 
+  /* HUD corner-bracket frame, reusable */
+  .hud-frame { position: relative; }
+  .hud-frame::before, .hud-frame::after {
+    content: ""; position: absolute; width: 10px; height: 10px; pointer-events: none; opacity: 0.4;
+    border-color: var(--series-blue); border-style: solid; border-width: 0;
+  }
+  .hud-frame::before { top: -1px; left: -1px; border-top-width: 1.5px; border-left-width: 1.5px; }
+  .hud-frame::after { bottom: -1px; right: -1px; border-bottom-width: 1.5px; border-right-width: 1.5px; }
+
+  /* Demo mode */
+  .demo-banner {
+    display: {{ 'flex' if demo_active else 'none' }}; align-items: center; gap: 0.5rem;
+    background: rgba(250,178,25,0.12); border: 1px solid rgba(250,178,25,0.35); color: var(--status-warning);
+    font-size: 0.72rem; font-weight: 650; letter-spacing: 0.03em; text-transform: uppercase;
+    border-radius: 6px; padding: 0.35rem 0.6rem; margin-bottom: 0.9rem;
+  }
+  .demo-banner .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--status-warning); animation: pulse 1.4s ease-in-out infinite; }
+  .demo-explain { font-size: 0.86rem; color: var(--text-secondary); max-width: 60ch; margin-bottom: 1.1rem; }
+  .demo-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+  .demo-actions .scan-btn.secondary { background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border); }
+  .demo-actions .scan-btn.secondary:hover:not(:disabled) { border-color: var(--status-critical); color: #fff; background: rgba(208,59,59,0.12); }
+
   /* Escanear */
   .scan-panel {
     background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
@@ -259,6 +317,8 @@
 </head>
 <body>
 <canvas id="bg-net"></canvas>
+<div class="bg-grid"></div>
+<div class="bg-sweep"></div>
 <div class="shell">
   <aside class="sidebar">
     <div class="brand">Proyecto Cyber<span>Escáner de vulnerabilidades</span></div>
@@ -269,6 +329,9 @@
       <a class="nav-item {{ 'alert' if stats.total_vulns else '' }}" data-view="vulnerabilidades"><span class="icon">▲</span>Vulnerabilidades<span class="count">{{ stats.total_vulns }}</span></a>
       <a class="nav-item {{ 'alert' if stats.attack_paths else '' }}" data-view="ataque"><span class="icon">✕</span>Rutas de ataque<span class="count">{{ stats.attack_paths }}</span></a>
       <a class="nav-item" data-view="timeline"><span class="icon">↻</span>Timeline</a>
+      {% if is_admin %}
+      <a class="nav-item" data-view="demo"><span class="icon">◐</span>Demo</a>
+      {% endif %}
     </nav>
     <div class="sidebar-footer">
       <div class="user">{{ username }}</div>
@@ -281,6 +344,7 @@
     <!-- Resumen -->
     <div class="view active" data-view="resumen">
       <h1>Resumen</h1>
+      <div id="demo-banner" class="demo-banner"><span class="dot"></span>Datos de ejemplo activos — no son hallazgos reales</div>
       <section>
         <h2>Estado de la red</h2>
         <div class="stat-row">
@@ -309,7 +373,7 @@
 
       <section>
         <h2>Vulnerabilidades por severidad</h2>
-        <div class="sev-chart">
+        <div class="sev-chart hud-frame">
           {% set sev_colors = {'critical': 'var(--status-critical)', 'high': 'var(--status-serious)', 'medium': 'var(--status-warning)', 'low': 'var(--status-low)'} %}
           {% set sev_labels = {'critical': 'Crítica', 'high': 'Alta', 'medium': 'Media', 'low': 'Baja'} %}
           {% for s in severity_order %}
@@ -341,7 +405,7 @@
     <div class="view" data-view="escanear">
       <h1>Escanear la red</h1>
       <section>
-        <div class="scan-panel">
+        <div class="scan-panel hud-frame">
           <div id="scan-status-text" class="scan-status-text {{ 'running' if (latest_scan and latest_scan.status == 'running') or pending_scan_request else '' }}">
             <span class="dot"></span>
             {% if pending_scan_request %}
@@ -383,6 +447,31 @@
         </div>
       </section>
     </div>
+
+    {% if is_admin %}
+    <!-- Demo -->
+    <div class="view" data-view="demo">
+      <h1>Modo demo</h1>
+      <section>
+        <p class="demo-explain">
+          Genera hallazgos de ejemplo (una vulnerabilidad crítica con exploit conocido y unas credenciales por
+          defecto) sobre equipos reales de tu inventario, para ver cómo se ve el panel con alertas activas.
+          Todo queda marcado como <code>[DEMO]</code> y se puede quitar en cualquier momento sin afectar a los
+          datos reales del escaneo.
+        </p>
+        <div class="demo-actions">
+          <button id="demo-seed-btn" class="scan-btn" onclick="demoSeed()">
+            <span class="spinner"></span>
+            <span id="demo-seed-label">Cargar datos de ejemplo</span>
+          </button>
+          <button id="demo-clear-btn" class="scan-btn secondary" onclick="demoClear()">
+            <span class="spinner"></span>
+            <span id="demo-clear-label">Quitar datos de ejemplo</span>
+          </button>
+        </div>
+      </section>
+    </div>
+    {% endif %}
 
     <!-- Inventario -->
     <div class="view" data-view="inventario">
@@ -579,6 +668,52 @@
   {% if pending_scan_request or (latest_scan and latest_scan.status == 'running') %}
   startScanPolling();
   {% endif %}
+
+  // --- Modo demo ---
+  async function demoSeed() {
+    const btn = document.getElementById("demo-seed-btn");
+    const label = document.getElementById("demo-seed-label");
+    btn.disabled = true; btn.classList.add("loading"); label.textContent = "Generando...";
+    try {
+      const resp = await fetch("/demo/seed", { method: "POST" });
+      if (!resp.ok) throw new Error("failed");
+      location.hash = "demo";
+      location.reload();
+    } catch (err) {
+      label.textContent = "Error, reintenta";
+      btn.disabled = false; btn.classList.remove("loading");
+    }
+  }
+
+  async function demoClear() {
+    const btn = document.getElementById("demo-clear-btn");
+    const label = document.getElementById("demo-clear-label");
+    btn.disabled = true; btn.classList.add("loading"); label.textContent = "Quitando...";
+    try {
+      const resp = await fetch("/demo/clear", { method: "POST" });
+      if (!resp.ok) throw new Error("failed");
+      location.hash = "demo";
+      location.reload();
+    } catch (err) {
+      label.textContent = "Error, reintenta";
+      btn.disabled = false; btn.classList.remove("loading");
+    }
+  }
+
+  // Animated count-up on the stat tile values
+  document.querySelectorAll(".stat-tile .value").forEach(el => {
+    const target = parseInt(el.textContent, 10);
+    if (isNaN(target)) return;
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    let current = 0;
+    const step = Math.max(1, Math.ceil(target / 24));
+    el.textContent = "0";
+    const timer = setInterval(() => {
+      current = Math.min(target, current + step);
+      el.textContent = current;
+      if (current >= target) clearInterval(timer);
+    }, 20);
+  });
 
   // --- Fondo animado: red de nodos ---
   (function () {
