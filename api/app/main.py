@@ -1,9 +1,11 @@
 import os
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import func
 
 from . import auth, models, schemas
 from .database import Base, engine, get_db
@@ -94,7 +96,22 @@ def get_host(
         "hostname": host.hostname,
         "os_guess": host.os_guess,
         "software": [
-            {"id": s.id, "name": s.name, "version": s.version, "port": s.port}
+            {
+                "id": s.id,
+                "name": s.name,
+                "version": s.version,
+                "port": s.port,
+                "vulnerabilities": [
+                    {
+                        "cve_id": v.cve_id,
+                        "cvss": v.cvss,
+                        "severity": v.severity,
+                        "known_exploited": v.known_exploited,
+                        "remediation": v.remediation,
+                    }
+                    for v in s.vulnerabilities
+                ],
+            }
             for s in host.software
         ],
     }
@@ -111,28 +128,157 @@ def ingest_scan(payload: schemas.ScanIngest, db: Session = Depends(get_db)):
 
     for host_in in payload.hosts:
         host = db.query(models.Host).filter(models.Host.ip == host_in.ip).first()
-        if host is None:
+        is_new_host = host is None
+        if is_new_host:
             host = models.Host(ip=host_in.ip)
             db.add(host)
             db.flush()
+            db.add(
+                models.Event(
+                    host_id=host.id,
+                    event_type="new_host",
+                    description=f"Nuevo equipo detectado en la red: {host_in.ip}",
+                )
+            )
         host.mac = host_in.mac or host.mac
         host.hostname = host_in.hostname or host.hostname
         host.os_guess = host_in.os_guess or host.os_guess
+        host.last_seen = func.now()
 
         for sw_in in host_in.software:
-            db.add(
-                models.Software(
-                    host_id=host.id,
-                    scan_id=scan.id,
-                    name=sw_in.name,
-                    version=sw_in.version,
-                    port=sw_in.port,
+            existing = (
+                db.query(models.Software)
+                .filter(
+                    models.Software.host_id == host.id,
+                    models.Software.name == sw_in.name,
+                    models.Software.port == sw_in.port,
                 )
+                .first()
             )
+            if existing is None:
+                db.add(
+                    models.Software(
+                        host_id=host.id,
+                        scan_id=scan.id,
+                        name=sw_in.name,
+                        version=sw_in.version,
+                        port=sw_in.port,
+                    )
+                )
+                if not is_new_host:
+                    db.add(
+                        models.Event(
+                            host_id=host.id,
+                            event_type="new_service",
+                            description=f"Nuevo servicio en {host_in.ip}: {sw_in.name} (puerto {sw_in.port})",
+                        )
+                    )
+            else:
+                if sw_in.version and existing.version != sw_in.version:
+                    db.add(
+                        models.Event(
+                            host_id=host.id,
+                            event_type="version_change",
+                            description=(
+                                f"{sw_in.name} en {host_in.ip} cambio de version: "
+                                f"{existing.version or 'desconocida'} -> {sw_in.version}"
+                            ),
+                        )
+                    )
+                    existing.version = sw_in.version
+                    existing.cve_checked_at = None
+                existing.scan_id = scan.id
+                existing.detected_at = func.now()
 
     scan.status = "completed"
     db.commit()
     return {"scan_id": scan.id, "hosts_ingested": len(payload.hosts)}
+
+
+# --- Vulnerability enrichment (usado por el servicio enricher) ---
+
+
+@app.get("/software/pending", dependencies=[Depends(verify_scanner_key)])
+def software_pending(db: Session = Depends(get_db)):
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    rows = (
+        db.query(models.Software)
+        .filter(
+            (models.Software.cve_checked_at.is_(None)) | (models.Software.cve_checked_at < cutoff)
+        )
+        .limit(20)
+        .all()
+    )
+    return [{"id": s.id, "name": s.name, "version": s.version} for s in rows]
+
+
+@app.post("/vulnerabilities/ingest", dependencies=[Depends(verify_scanner_key)])
+def ingest_vulnerabilities(payload: schemas.VulnerabilityIngest, db: Session = Depends(get_db)):
+    software = db.query(models.Software).filter(models.Software.id == payload.software_id).first()
+    if not software:
+        raise HTTPException(status_code=404, detail="Software not found")
+
+    existing_cves = {v.cve_id for v in software.vulnerabilities}
+    new_count = 0
+    for vuln_in in payload.vulnerabilities:
+        if vuln_in.cve_id in existing_cves:
+            continue
+        db.add(models.Vulnerability(software_id=software.id, **vuln_in.model_dump()))
+        new_count += 1
+        if vuln_in.known_exploited:
+            db.add(
+                models.Event(
+                    host_id=software.host_id,
+                    event_type="critical_vuln",
+                    description=(
+                        f"Vulnerabilidad con exploit publico conocido en {software.name}: {vuln_in.cve_id}"
+                    ),
+                )
+            )
+    software.cve_checked_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"software_id": software.id, "new_vulnerabilities": new_count}
+
+
+# --- Timeline y priorizacion ---
+
+
+@app.get("/events")
+def list_events(db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
+    events = db.query(models.Event).order_by(models.Event.occurred_at.desc()).limit(50).all()
+    return [
+        {
+            "id": e.id,
+            "host_id": e.host_id,
+            "event_type": e.event_type,
+            "description": e.description,
+            "occurred_at": e.occurred_at,
+        }
+        for e in events
+    ]
+
+
+@app.get("/priorities")
+def list_priorities(db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
+    vulns = (
+        db.query(models.Vulnerability)
+        .join(models.Software)
+        .order_by(models.Vulnerability.known_exploited.desc(), models.Vulnerability.cvss.desc().nullslast())
+        .limit(5)
+        .all()
+    )
+    return [
+        {
+            "cve_id": v.cve_id,
+            "cvss": v.cvss,
+            "severity": v.severity,
+            "known_exploited": v.known_exploited,
+            "host_ip": v.software.host.ip,
+            "software": v.software.name,
+            "remediation": v.remediation,
+        }
+        for v in vulns
+    ]
 
 
 # --- Dashboard ---
@@ -149,8 +295,23 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/login")
 
     hosts = db.query(models.Host).order_by(models.Host.ip).all()
+    events = db.query(models.Event).order_by(models.Event.occurred_at.desc()).limit(15).all()
+    priorities = (
+        db.query(models.Vulnerability)
+        .join(models.Software)
+        .order_by(models.Vulnerability.known_exploited.desc(), models.Vulnerability.cvss.desc().nullslast())
+        .limit(5)
+        .all()
+    )
     return templates.TemplateResponse(
-        "dashboard.html", {"request": request, "hosts": hosts, "username": payload["sub"]}
+        "dashboard.html",
+        {
+            "request": request,
+            "hosts": hosts,
+            "events": events,
+            "priorities": priorities,
+            "username": payload["sub"],
+        },
     )
 
 

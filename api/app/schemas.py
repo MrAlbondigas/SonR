@@ -22,3 +22,17 @@ class ScanIngest(BaseModel):
 class LoginIn(BaseModel):
     username: str
     password: str
+
+
+class VulnerabilityIn(BaseModel):
+    cve_id: str
+    cvss: float | None = None
+    severity: str | None = None
+    description: str | None = None
+    remediation: str | None = None
+    known_exploited: bool = False
+
+
+class VulnerabilityIngest(BaseModel):
+    software_id: int
+    vulnerabilities: list[VulnerabilityIn]

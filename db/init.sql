@@ -30,7 +30,9 @@ CREATE TABLE software (
     name TEXT NOT NULL,
     version TEXT,
     port INTEGER,
-    detected_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    cve_checked_at TIMESTAMPTZ,
+    UNIQUE (host_id, name, port)
 );
 
 CREATE TABLE vulnerabilities (
@@ -41,6 +43,7 @@ CREATE TABLE vulnerabilities (
     severity TEXT,
     description TEXT,
     remediation TEXT,
+    known_exploited BOOLEAN NOT NULL DEFAULT false,
     detected_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -51,5 +54,14 @@ CREATE TABLE alerts (
     channel TEXT
 );
 
+CREATE TABLE events (
+    id SERIAL PRIMARY KEY,
+    host_id INTEGER REFERENCES hosts(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL,
+    description TEXT NOT NULL,
+    occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX idx_software_host ON software(host_id);
 CREATE INDEX idx_vuln_software ON vulnerabilities(software_id);
+CREATE INDEX idx_events_occurred ON events(occurred_at DESC);

@@ -1,4 +1,4 @@
-from sqlalchemy import REAL, Column, ForeignKey, Integer, Text, TIMESTAMP
+from sqlalchemy import REAL, Boolean, Column, ForeignKey, Integer, Text, TIMESTAMP
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -48,6 +48,7 @@ class Software(Base):
     version = Column(Text)
     port = Column(Integer)
     detected_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    cve_checked_at = Column(TIMESTAMP(timezone=True))
 
     host = relationship("Host", back_populates="software")
     vulnerabilities = relationship(
@@ -65,6 +66,17 @@ class Vulnerability(Base):
     severity = Column(Text)
     description = Column(Text)
     remediation = Column(Text)
+    known_exploited = Column(Boolean, nullable=False, default=False)
     detected_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     software = relationship("Software", back_populates="vulnerabilities")
+
+
+class Event(Base):
+    __tablename__ = "events"
+
+    id = Column(Integer, primary_key=True)
+    host_id = Column(Integer, ForeignKey("hosts.id", ondelete="CASCADE"))
+    event_type = Column(Text, nullable=False)
+    description = Column(Text, nullable=False)
+    occurred_at = Column(TIMESTAMP(timezone=True), server_default=func.now())

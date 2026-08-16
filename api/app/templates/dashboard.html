@@ -14,6 +14,20 @@
   .muted { color: #64748b; }
   .badge { background: #2563eb; color: white; border-radius: 999px; padding: 0.15rem 0.6rem; font-size: 0.75rem; }
   a.logout { color: #94a3b8; text-decoration: none; font-size: 0.85rem; }
+  h2 { font-size: 1rem; margin: 2rem 0 0.75rem; color: #cbd5e1; }
+  .critical { color: #f87171; font-weight: 600; }
+  .high { color: #fb923c; }
+  .medium { color: #facc15; }
+  .low { color: #94a3b8; }
+  .exploit-tag { background: #7f1d1d; color: #fecaca; border-radius: 999px; padding: 0.1rem 0.5rem; font-size: 0.7rem; margin-left: 0.4rem; }
+  ul.timeline { list-style: none; padding: 0; margin: 0; background: #1e293b; border-radius: 8px; }
+  ul.timeline li { padding: 0.6rem 1rem; border-bottom: 1px solid #334155; font-size: 0.85rem; }
+  ul.timeline li:last-child { border-bottom: none; }
+  ul.timeline .ts { color: #64748b; font-size: 0.75rem; display: block; }
+  .event-new_host { border-left: 3px solid #22c55e; }
+  .event-new_service { border-left: 3px solid #3b82f6; }
+  .event-version_change { border-left: 3px solid #eab308; }
+  .event-critical_vuln { border-left: 3px solid #ef4444; }
 </style>
 </head>
 <body>
@@ -25,6 +39,29 @@
     <a class="logout" href="#" onclick="fetch('/auth/logout', {method:'POST'}).then(() => location.href='/login')">Cerrar sesión</a>
   </div>
 </header>
+
+<h2>Top 5 prioridades</h2>
+<table>
+  <thead>
+    <tr><th>CVE</th><th>Software</th><th>Equipo</th><th>CVSS</th><th>Severidad</th><th>Remediación</th></tr>
+  </thead>
+  <tbody>
+    {% for v in priorities %}
+    <tr>
+      <td>{{ v.cve_id }}{% if v.known_exploited %}<span class="exploit-tag">EXPLOIT CONOCIDO</span>{% endif %}</td>
+      <td>{{ v.software.name }}</td>
+      <td>{{ v.software.host.ip }}</td>
+      <td class="{{ v.severity|lower if v.severity else '' }}">{{ v.cvss or "—" }}</td>
+      <td>{{ v.severity or "—" }}</td>
+      <td class="muted">{{ v.remediation or "—" }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" class="muted">Todavía no hay vulnerabilidades cruzadas con CVEs.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Inventario de equipos</h2>
 <table>
   <thead>
     <tr><th>IP</th><th>Hostname</th><th>MAC</th><th>SO estimado</th><th>Software detectado</th><th>Última vez visto</th></tr>
@@ -44,5 +81,17 @@
     {% endfor %}
   </tbody>
 </table>
+
+<h2>Timeline de cambios</h2>
+<ul class="timeline">
+  {% for e in events %}
+  <li class="event-{{ e.event_type }}">
+    <span class="ts">{{ e.occurred_at }}</span>
+    {{ e.description }}
+  </li>
+  {% else %}
+  <li class="muted">Sin cambios registrados todavía.</li>
+  {% endfor %}
+</ul>
 </body>
 </html>
