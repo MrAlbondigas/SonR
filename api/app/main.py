@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
@@ -17,6 +17,7 @@ app = FastAPI(title="Proyecto Cyber - Network Vulnerability Scanner")
 templates = Jinja2Templates(directory="app/templates")
 
 SCANNER_API_KEY = os.environ["SCANNER_API_KEY"]
+REPORTS_DIR = "/app/reports"
 
 
 def lookup_vendor(mac: str) -> str | None:
@@ -395,6 +396,67 @@ def compute_attack_paths(db: Session) -> list[dict]:
 @app.get("/attack-paths")
 def list_attack_paths(db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
     return compute_attack_paths(db)
+
+
+# --- Reportes ---
+
+
+@app.get("/reports/data", dependencies=[Depends(verify_scanner_key)])
+def report_data(db: Session = Depends(get_db)):
+    hosts = db.query(models.Host).order_by(models.Host.ip).all()
+    priorities = (
+        db.query(models.Vulnerability)
+        .join(models.Software)
+        .order_by(models.Vulnerability.known_exploited.desc(), models.Vulnerability.cvss.desc().nullslast())
+        .limit(10)
+        .all()
+    )
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    events = (
+        db.query(models.Event)
+        .filter(models.Event.occurred_at >= week_ago)
+        .order_by(models.Event.occurred_at.desc())
+        .all()
+    )
+    attack_paths = compute_attack_paths(db)
+    credential_findings = db.query(models.CredentialFinding).all()
+
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "host_count": len(hosts),
+        "hosts": [
+            {"ip": h.ip, "hostname": h.hostname, "vendor": h.vendor, "os_guess": h.os_guess}
+            for h in hosts
+        ],
+        "priorities": [
+            {
+                "cve_id": v.cve_id,
+                "cvss": v.cvss,
+                "severity": v.severity,
+                "known_exploited": v.known_exploited,
+                "host_ip": v.software.host.ip,
+                "software": v.software.name,
+            }
+            for v in priorities
+        ],
+        "events_last_7_days": [
+            {"event_type": e.event_type, "description": e.description, "occurred_at": e.occurred_at.isoformat()}
+            for e in events
+        ],
+        "attack_paths": attack_paths,
+        "credential_findings": [
+            {"host_ip": c.host.ip, "port": c.port, "service": c.service, "username": c.username}
+            for c in credential_findings
+        ],
+    }
+
+
+@app.get("/reports/latest")
+def download_latest_report(user: models.User = Depends(auth.get_current_user)):
+    path = os.path.join(REPORTS_DIR, "latest.pdf")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Todavia no se ha generado ningun reporte")
+    return FileResponse(path, media_type="application/pdf", filename="proyecto-cyber-reporte.pdf")
 
 
 # --- Dashboard ---

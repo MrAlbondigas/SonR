@@ -40,6 +40,8 @@
   <div>
     <span class="muted">{{ username }}</span>
     &nbsp;|&nbsp;
+    <a class="logout" href="/reports/latest">Descargar reporte PDF</a>
+    &nbsp;|&nbsp;
     <a class="logout" href="#" onclick="fetch('/auth/logout', {method:'POST'}).then(() => location.href='/login')">Cerrar sesión</a>
   </div>
 </header>

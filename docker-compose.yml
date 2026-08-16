@@ -29,6 +29,8 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
     ports:
       - "8000:8000"
+    volumes:
+      - reports_data:/app/reports
 
   scanner:
     build: ./scanner
@@ -62,5 +64,18 @@ services:
       SCANNER_API_KEY: ${SCANNER_API_KEY}
       CHECK_INTERVAL_SECONDS: 1800
 
+  reporter:
+    build: ./reporter
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      API_URL: http://api:8000
+      SCANNER_API_KEY: ${SCANNER_API_KEY}
+      REPORT_INTERVAL_SECONDS: 604800
+    volumes:
+      - reports_data:/app/reports
+
 volumes:
   db_data:
+  reports_data:

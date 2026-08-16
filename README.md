@@ -9,6 +9,7 @@ Plataforma de gestión de vulnerabilidades para la red local: descubre equipos, 
 - **scanner** — Python + nmap, descubre equipos en la red local (`network_mode: host`) y envía los resultados a la API.
 - **enricher** — cruza cada software detectado con la API de NVD (CVEs) y el catálogo CISA KEV (exploits activamente explotados).
 - **credcheck** — prueba una lista corta de credenciales por defecto muy conocidas contra SSH/FTP/HTTP Basic Auth expuestos.
+- **reporter** — genera un reporte PDF semanal (top prioridades, rutas de ataque, credenciales encontradas, timeline) descargable desde el dashboard.
 - **dashboard** — servido por la propia API (plantillas Jinja2), muestra inventario, prioridades, rutas de ataque y timeline en tiempo real.
 
 ## Uso
@@ -25,7 +26,7 @@ Dashboard disponible en `http://<ip-vm>:8000`.
 - [x] Fase 1: core (BBDD, API, escáner básico, dashboard, login)
 - [x] Fase 2: cruce con CVEs (NVD), verificación de exploits públicos (CISA KEV), timeline de cambios, priorización top-5
 - [x] Fase 3: credenciales por defecto (SSH/FTP/HTTP Basic), fingerprinting de fabricante por MAC, rutas de ataque
-- [ ] Fase 4: asistente de chat, reportes programados
+- [x] Fase 4: reportes PDF programados (semanal). Asistente de chat pendiente — necesita una API key de Anthropic propia del proyecto (no incluida por decisión del alumno)
 
 ## Limitaciones conocidas
 
