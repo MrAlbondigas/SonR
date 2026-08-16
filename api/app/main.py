@@ -482,6 +482,30 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         .all()
     )
     attack_paths = compute_attack_paths(db)
+
+    all_vulns = db.query(models.Vulnerability).all()
+    severity_order = ["critical", "high", "medium", "low"]
+    severity_counts = {s: 0 for s in severity_order}
+    for v in all_vulns:
+        if v.severity in severity_counts:
+            severity_counts[v.severity] += 1
+    max_severity_count = max(severity_counts.values()) if any(severity_counts.values()) else 1
+
+    credential_count = db.query(models.CredentialFinding).count()
+    critical_vuln_count = (
+        db.query(models.Vulnerability)
+        .filter((models.Vulnerability.known_exploited.is_(True)) | (models.Vulnerability.cvss >= 9.0))
+        .count()
+    )
+
+    stats = {
+        "host_count": len(hosts),
+        "total_vulns": len(all_vulns),
+        "critical_vulns": critical_vuln_count,
+        "credential_findings": credential_count,
+        "attack_paths": len(attack_paths),
+    }
+
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -490,6 +514,10 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "events": events,
             "priorities": priorities,
             "attack_paths": attack_paths,
+            "stats": stats,
+            "severity_counts": severity_counts,
+            "severity_order": severity_order,
+            "max_severity_count": max_severity_count,
             "username": payload["sub"],
         },
     )
