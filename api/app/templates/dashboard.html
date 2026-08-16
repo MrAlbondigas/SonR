@@ -186,6 +186,7 @@
     background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);
     display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 650;
   }
+  .avatar.guest { border-style: dashed; color: var(--text-muted); }
   .user-info { min-width: 0; }
   .user-name { font-size: 0.82rem; color: var(--text-primary); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .user-role { font-size: 0.68rem; color: var(--text-muted); }
@@ -205,6 +206,9 @@
   .btn svg { width: 15px; height: 15px; flex: none; opacity: 0.8; }
   .btn:hover { border-color: var(--series-blue); color: var(--text-primary); background: rgba(57,135,229,0.08); transform: translateX(2px); }
   .btn:hover svg { opacity: 1; }
+  .btn-accent { border-color: var(--series-blue); color: var(--series-blue); }
+  .btn-accent svg { opacity: 1; }
+  .btn-accent:hover { background: rgba(57,135,229,0.14); color: var(--text-primary); }
 
   h1 { font-size: 1.3rem; margin: 0 0 1.5rem; font-weight: 650; letter-spacing: -0.01em; }
 
@@ -446,6 +450,7 @@
     </nav>
 
     <div class="sidebar-footer">
+      {% if is_authenticated %}
       <div class="user-card">
         <div class="avatar">{{ username[0]|upper }}</div>
         <div class="user-info label-text">
@@ -453,15 +458,31 @@
           <div class="user-role">{{ 'Administrador' if is_admin else 'Visor' }}</div>
         </div>
       </div>
+      {% else %}
+      <div class="user-card">
+        <div class="avatar guest">?</div>
+        <div class="user-info label-text">
+          <div class="user-name">Invitado</div>
+          <div class="user-role">Sin iniciar sesión</div>
+        </div>
+      </div>
+      {% endif %}
       <div class="footer-actions label-text">
         <a class="btn" href="/reports/latest" title="Descargar PDF">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 v12 M7 10 l5 5 5-5"/><path d="M4 19 h16"/></svg>
           <span class="label-text">Descargar PDF</span>
         </a>
-        <a class="btn" href="#" title="Cerrar sesión" onclick="fetch('/auth/logout', {method:'POST'}).then(() => location.href='/login')">
+        {% if is_authenticated %}
+        <a class="btn" href="#" title="Cerrar sesión" onclick="fetch('/auth/logout', {method:'POST'}).then(() => location.href='/')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4 H6 a1 1 0 0 0-1 1 v14 a1 1 0 0 0 1 1 h9"/><path d="M10 12 h11 M18 8 l3 4-3 4"/></svg>
           <span class="label-text">Cerrar sesión</span>
         </a>
+        {% else %}
+        <a class="btn btn-accent" href="/login" title="Iniciar sesión">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 H18 a1 1 0 0 1 1 1 v14 a1 1 0 0 1-1 1 H9"/><path d="M14 12 H3 M8 8 l-4 4 4 4"/></svg>
+          <span class="label-text">Iniciar sesión</span>
+        </a>
+        {% endif %}
       </div>
     </div>
   </aside>
@@ -753,7 +774,12 @@
     btn.classList.add("loading");
     label.textContent = "Enviando...";
     try {
-      await fetch("/scan/request", { method: "POST" });
+      const resp = await fetch("/scan/request", { method: "POST" });
+      if (resp.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
+      if (!resp.ok) throw new Error("failed");
       label.textContent = "Solicitado";
       startScanPolling();
     } catch (err) {

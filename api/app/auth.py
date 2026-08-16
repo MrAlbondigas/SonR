@@ -53,3 +53,15 @@ def require_admin(user: models.User = Depends(get_current_user)) -> models.User:
     if user.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
     return user
+
+
+def get_current_user_optional(
+    session_token: str | None = Cookie(default=None), db: Session = Depends(get_db)
+) -> models.User | None:
+    if session_token is None:
+        return None
+    try:
+        payload = decode_access_token(session_token)
+    except HTTPException:
+        return None
+    return db.query(models.User).filter(models.User.username == payload["sub"]).first()

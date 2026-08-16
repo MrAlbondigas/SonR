@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
@@ -78,7 +78,7 @@ def logout(response: Response):
 
 
 @app.get("/hosts")
-def list_hosts(db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
+def list_hosts(db: Session = Depends(get_db)):
     hosts = db.query(models.Host).order_by(models.Host.ip).all()
     return [
         {
@@ -96,9 +96,7 @@ def list_hosts(db: Session = Depends(get_db), user: models.User = Depends(auth.g
 
 
 @app.get("/hosts/{host_id}")
-def get_host(
-    host_id: int, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)
-):
+def get_host(host_id: int, db: Session = Depends(get_db)):
     host = db.query(models.Host).filter(models.Host.id == host_id).first()
     if not host:
         raise HTTPException(status_code=404, detail="Host not found")
@@ -168,7 +166,7 @@ def consume_pending_scan(db: Session = Depends(get_db)):
 
 
 @app.get("/scan/status")
-def scan_status(db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
+def scan_status(db: Session = Depends(get_db)):
     latest = db.query(models.Scan).order_by(models.Scan.started_at.desc()).first()
     recent = db.query(models.Scan).order_by(models.Scan.started_at.desc()).limit(5).all()
     pending = (
@@ -376,7 +374,7 @@ def ingest_credential(payload: schemas.CredentialFindingIn, db: Session = Depend
 
 
 @app.get("/events")
-def list_events(db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
+def list_events(db: Session = Depends(get_db)):
     events = db.query(models.Event).order_by(models.Event.occurred_at.desc()).limit(50).all()
     return [
         {
@@ -391,7 +389,7 @@ def list_events(db: Session = Depends(get_db), user: models.User = Depends(auth.
 
 
 @app.get("/priorities")
-def list_priorities(db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
+def list_priorities(db: Session = Depends(get_db)):
     vulns = (
         db.query(models.Vulnerability)
         .join(models.Software)
@@ -459,7 +457,7 @@ def compute_attack_paths(db: Session) -> list[dict]:
 
 
 @app.get("/attack-paths")
-def list_attack_paths(db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
+def list_attack_paths(db: Session = Depends(get_db)):
     return compute_attack_paths(db)
 
 
@@ -517,7 +515,7 @@ def report_data(db: Session = Depends(get_db)):
 
 
 @app.get("/reports/latest")
-def download_latest_report(user: models.User = Depends(auth.get_current_user)):
+def download_latest_report():
     path = os.path.join(REPORTS_DIR, "latest.pdf")
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Todavia no se ha generado ningun reporte")
@@ -528,7 +526,7 @@ def download_latest_report(user: models.User = Depends(auth.get_current_user)):
 
 
 @app.get("/demo/status")
-def demo_status(db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
+def demo_status(db: Session = Depends(get_db)):
     count = db.query(models.DemoRecord).count()
     return {"active": count > 0}
 
@@ -625,15 +623,11 @@ def clear_demo_data(db: Session = Depends(get_db), admin: models.User = Depends(
 
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, db: Session = Depends(get_db)):
-    token = request.cookies.get("session_token")
-    if not token:
-        return RedirectResponse("/login")
-    try:
-        payload = auth.decode_access_token(token)
-    except HTTPException:
-        return RedirectResponse("/login")
-
+def dashboard(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User | None = Depends(auth.get_current_user_optional),
+):
     hosts = db.query(models.Host).order_by(models.Host.ip).all()
     events = db.query(models.Event).order_by(models.Event.occurred_at.desc()).limit(15).all()
     priorities = (
@@ -691,8 +685,9 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "recent_scans": recent_scans,
             "pending_scan_request": pending_scan_request is not None,
             "demo_active": demo_active,
-            "is_admin": payload.get("role") == "admin",
-            "username": payload["sub"],
+            "is_authenticated": current_user is not None,
+            "is_admin": current_user is not None and current_user.role == "admin",
+            "username": current_user.username if current_user else None,
         },
     )
 
