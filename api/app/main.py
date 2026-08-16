@@ -135,6 +135,70 @@ def get_host(
     }
 
 
+# --- Escaneo bajo demanda ---
+
+
+@app.post("/scan/request")
+def request_scan(
+    db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)
+):
+    pending_exists = (
+        db.query(models.ScanRequest).filter(models.ScanRequest.consumed_at.is_(None)).first()
+    )
+    if pending_exists:
+        return {"ok": True, "already_pending": True}
+    db.add(models.ScanRequest(requested_by=user.username))
+    db.commit()
+    return {"ok": True, "already_pending": False}
+
+
+@app.get("/scan/pending", dependencies=[Depends(verify_scanner_key)])
+def consume_pending_scan(db: Session = Depends(get_db)):
+    pending = (
+        db.query(models.ScanRequest)
+        .filter(models.ScanRequest.consumed_at.is_(None))
+        .order_by(models.ScanRequest.requested_at)
+        .first()
+    )
+    if not pending:
+        return {"pending": False}
+    pending.consumed_at = func.now()
+    db.commit()
+    return {"pending": True, "requested_by": pending.requested_by}
+
+
+@app.get("/scan/status")
+def scan_status(db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
+    latest = db.query(models.Scan).order_by(models.Scan.started_at.desc()).first()
+    recent = db.query(models.Scan).order_by(models.Scan.started_at.desc()).limit(5).all()
+    pending = (
+        db.query(models.ScanRequest).filter(models.ScanRequest.consumed_at.is_(None)).first()
+    )
+    return {
+        "latest": (
+            {
+                "id": latest.id,
+                "started_at": latest.started_at,
+                "finished_at": latest.finished_at,
+                "status": latest.status,
+                "in_progress": latest.status == "running",
+            }
+            if latest
+            else None
+        ),
+        "pending_request": pending is not None,
+        "recent": [
+            {
+                "id": s.id,
+                "started_at": s.started_at,
+                "finished_at": s.finished_at,
+                "status": s.status,
+            }
+            for s in recent
+        ],
+    }
+
+
 # --- Scanner ingest ---
 
 
@@ -211,6 +275,7 @@ def ingest_scan(payload: schemas.ScanIngest, db: Session = Depends(get_db)):
                 existing.detected_at = func.now()
 
     scan.status = "completed"
+    scan.finished_at = func.now()
     db.commit()
     return {"scan_id": scan.id, "hosts_ingested": len(payload.hosts)}
 
@@ -506,6 +571,12 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         "attack_paths": len(attack_paths),
     }
 
+    latest_scan = db.query(models.Scan).order_by(models.Scan.started_at.desc()).first()
+    recent_scans = db.query(models.Scan).order_by(models.Scan.started_at.desc()).limit(5).all()
+    pending_scan_request = (
+        db.query(models.ScanRequest).filter(models.ScanRequest.consumed_at.is_(None)).first()
+    )
+
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -518,6 +589,9 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "severity_counts": severity_counts,
             "severity_order": severity_order,
             "max_severity_count": max_severity_count,
+            "latest_scan": latest_scan,
+            "recent_scans": recent_scans,
+            "pending_scan_request": pending_scan_request is not None,
             "username": payload["sub"],
         },
     )

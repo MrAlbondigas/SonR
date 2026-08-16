@@ -49,9 +49,11 @@
     z-index: 0;
     pointer-events: none;
     background: radial-gradient(600px circle at var(--mx, 50%) var(--my, 20%),
-      rgba(57,135,229,0.07), transparent 60%);
+      rgba(57,135,229,0.09), transparent 60%);
     transition: background 0.15s ease-out;
   }
+
+  #bg-net { position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.55; }
 
   a { color: inherit; }
 
@@ -221,6 +223,31 @@
   .event-critical_vuln      { border-left-color: var(--status-critical); }
   .event-default_credentials{ border-left-color: var(--status-critical); }
 
+  /* Escanear */
+  .scan-panel {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+    padding: 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; flex-wrap: wrap;
+  }
+  .scan-status-text { font-size: 0.86rem; color: var(--text-secondary); }
+  .scan-status-text .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 0.4rem; background: var(--status-good); vertical-align: middle; }
+  .scan-status-text.running .dot { background: var(--status-warning); animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(250,178,25,0.5); } 50% { opacity: 0.6; box-shadow: 0 0 0 5px rgba(250,178,25,0); } }
+  .scan-btn {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    background: var(--series-blue); color: #fff; border: none;
+    font-size: 0.88rem; font-weight: 600; padding: 0.7rem 1.3rem; border-radius: 8px;
+    cursor: pointer; transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  }
+  .scan-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 20px -8px rgba(57,135,229,0.6); background: #4a94ec; }
+  .scan-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+  .scan-btn .spinner {
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.4); border-top-color: #fff;
+    animation: spin 0.7s linear infinite; display: none;
+  }
+  .scan-btn.loading .spinner { display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
   @media (max-width: 720px) {
     .shell { flex-direction: column; }
     .sidebar { width: 100%; height: auto; position: relative; flex-direction: row; overflow-x: auto; padding: 0.75rem; }
@@ -231,11 +258,13 @@
 </style>
 </head>
 <body>
+<canvas id="bg-net"></canvas>
 <div class="shell">
   <aside class="sidebar">
     <div class="brand">Proyecto Cyber<span>Escáner de vulnerabilidades</span></div>
     <nav>
       <a class="nav-item active" data-view="resumen"><span class="icon">◆</span>Resumen</a>
+      <a class="nav-item" data-view="escanear"><span class="icon">⟳</span>Escanear</a>
       <a class="nav-item" data-view="inventario"><span class="icon">▦</span>Inventario<span class="count">{{ stats.host_count }}</span></a>
       <a class="nav-item {{ 'alert' if stats.total_vulns else '' }}" data-view="vulnerabilidades"><span class="icon">▲</span>Vulnerabilidades<span class="count">{{ stats.total_vulns }}</span></a>
       <a class="nav-item {{ 'alert' if stats.attack_paths else '' }}" data-view="ataque"><span class="icon">✕</span>Rutas de ataque<span class="count">{{ stats.attack_paths }}</span></a>
@@ -305,6 +334,53 @@
           <li class="muted">Sin cambios registrados todavía.</li>
           {% endfor %}
         </ul>
+      </section>
+    </div>
+
+    <!-- Escanear -->
+    <div class="view" data-view="escanear">
+      <h1>Escanear la red</h1>
+      <section>
+        <div class="scan-panel">
+          <div id="scan-status-text" class="scan-status-text {{ 'running' if (latest_scan and latest_scan.status == 'running') or pending_scan_request else '' }}">
+            <span class="dot"></span>
+            {% if pending_scan_request %}
+              Escaneo manual solicitado — el escáner lo recogerá en unos segundos
+            {% elif latest_scan and latest_scan.status == 'running' %}
+              Escaneo en curso desde {{ latest_scan.started_at }}
+            {% elif latest_scan %}
+              Último escaneo: {{ latest_scan.finished_at or latest_scan.started_at }} · {{ latest_scan.status }}
+            {% else %}
+              Todavía no se ha ejecutado ningún escaneo
+            {% endif %}
+          </div>
+          <button id="scan-btn" class="scan-btn" onclick="triggerScan()">
+            <span class="spinner"></span>
+            <span id="scan-btn-label">Ejecutar escaneo ahora</span>
+          </button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Historial reciente</h2>
+        <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Inicio</th><th>Fin</th><th>Estado</th></tr>
+          </thead>
+          <tbody id="scan-history-body">
+            {% for s in recent_scans %}
+            <tr>
+              <td class="num">{{ s.started_at }}</td>
+              <td class="num">{{ s.finished_at or "—" }}</td>
+              <td><span class="badge {{ 'sev-medium' if s.status == 'running' else 'count' }}">{{ s.status }}</span></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="muted">Sin historial todavía.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
       </section>
     </div>
 
@@ -427,6 +503,142 @@
     document.body.style.setProperty("--mx", e.clientX + "px");
     document.body.style.setProperty("--my", e.clientY + "px");
   });
+
+  // --- Escaneo manual ---
+  let scanPolling = null;
+
+  async function triggerScan() {
+    const btn = document.getElementById("scan-btn");
+    const label = document.getElementById("scan-btn-label");
+    btn.disabled = true;
+    btn.classList.add("loading");
+    label.textContent = "Enviando...";
+    try {
+      await fetch("/scan/request", { method: "POST" });
+      label.textContent = "Solicitado";
+      startScanPolling();
+    } catch (err) {
+      label.textContent = "Error, reintenta";
+      btn.disabled = false;
+      btn.classList.remove("loading");
+    }
+  }
+
+  function renderScanStatus(data) {
+    const el = document.getElementById("scan-status-text");
+    const btn = document.getElementById("scan-btn");
+    const label = document.getElementById("scan-btn-label");
+    const running = data.pending_request || (data.latest && data.latest.in_progress);
+    el.classList.toggle("running", running);
+
+    if (data.pending_request) {
+      el.innerHTML = '<span class="dot"></span>Escaneo manual solicitado — el escáner lo recogerá en unos segundos';
+    } else if (data.latest && data.latest.in_progress) {
+      el.innerHTML = '<span class="dot"></span>Escaneo en curso desde ' + data.latest.started_at;
+    } else if (data.latest) {
+      el.innerHTML = '<span class="dot"></span>Último escaneo: ' + (data.latest.finished_at || data.latest.started_at) + ' · ' + data.latest.status;
+    }
+
+    btn.disabled = running;
+    btn.classList.toggle("loading", running);
+    label.textContent = running ? "En curso..." : "Ejecutar escaneo ahora";
+
+    const tbody = document.getElementById("scan-history-body");
+    if (data.recent && data.recent.length) {
+      tbody.innerHTML = data.recent.map(s =>
+        '<tr><td class="num">' + s.started_at + '</td><td class="num">' + (s.finished_at || "—") +
+        '</td><td><span class="badge ' + (s.status === "running" ? "sev-medium" : "count") + '">' + s.status + '</span></td></tr>'
+      ).join("");
+    }
+    return running;
+  }
+
+  async function pollScanStatus() {
+    try {
+      const resp = await fetch("/scan/status");
+      const data = await resp.json();
+      const stillRunning = renderScanStatus(data);
+      if (!stillRunning) stopScanPolling();
+    } catch (err) { /* ignore transient errors */ }
+  }
+
+  function startScanPolling() {
+    if (scanPolling) return;
+    pollScanStatus();
+    scanPolling = setInterval(pollScanStatus, 4000);
+  }
+
+  function stopScanPolling() {
+    if (scanPolling) { clearInterval(scanPolling); scanPolling = null; }
+  }
+
+  // Poll automatically whenever the "Escanear" view is open
+  const scanNavItem = document.querySelector('.nav-item[data-view="escanear"]');
+  scanNavItem.addEventListener("click", startScanPolling);
+  if (location.hash === "#escanear") startScanPolling();
+  {% if pending_scan_request or (latest_scan and latest_scan.status == 'running') %}
+  startScanPolling();
+  {% endif %}
+
+  // --- Fondo animado: red de nodos ---
+  (function () {
+    const canvas = document.getElementById("bg-net");
+    const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const ctx = canvas.getContext("2d");
+    let w, h, nodes;
+
+    function resize() {
+      w = canvas.width = window.innerWidth;
+      h = canvas.height = window.innerHeight;
+    }
+
+    function initNodes() {
+      const count = Math.max(24, Math.min(70, Math.floor((w * h) / 22000)));
+      nodes = Array.from({ length: count }, () => ({
+        x: Math.random() * w,
+        y: Math.random() * h,
+        vx: (Math.random() - 0.5) * 0.25,
+        vy: (Math.random() - 0.5) * 0.25,
+      }));
+    }
+
+    function step() {
+      ctx.clearRect(0, 0, w, h);
+      for (const n of nodes) {
+        n.x += n.vx; n.y += n.vy;
+        if (n.x < 0 || n.x > w) n.vx *= -1;
+        if (n.y < 0 || n.y > h) n.vy *= -1;
+      }
+      const maxDist = 140;
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < maxDist) {
+            ctx.strokeStyle = "rgba(57,135,229," + (0.12 * (1 - dist / maxDist)) + ")";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(nodes[i].x, nodes[i].y);
+            ctx.lineTo(nodes[j].x, nodes[j].y);
+            ctx.stroke();
+          }
+        }
+      }
+      for (const n of nodes) {
+        ctx.fillStyle = "rgba(57,135,229,0.45)";
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (!reduceMotion) requestAnimationFrame(step);
+    }
+
+    resize();
+    initNodes();
+    window.addEventListener("resize", () => { resize(); initNodes(); });
+    step();
+    if (reduceMotion) { /* draw a single static frame, no loop */ }
+  })();
 </script>
 </body>
 </html>

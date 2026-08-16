@@ -42,6 +42,15 @@ class Scan(Base):
     status = Column(Text, nullable=False, default="running")
 
 
+class ScanRequest(Base):
+    __tablename__ = "scan_requests"
+
+    id = Column(Integer, primary_key=True)
+    requested_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    requested_by = Column(Text)
+    consumed_at = Column(TIMESTAMP(timezone=True))
+
+
 class Software(Base):
     __tablename__ = "software"
 

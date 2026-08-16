@@ -105,10 +105,31 @@ def run_scan_cycle():
     print(f"Ingesta OK: {resp.json()}")
 
 
+def check_manual_trigger() -> bool:
+    try:
+        resp = requests.get(f"{API_URL}/scan/pending", headers={"X-API-Key": API_KEY}, timeout=10)
+        resp.raise_for_status()
+        return resp.json().get("pending", False)
+    except Exception:
+        return False
+
+
+def wait_for_next_cycle():
+    """Duerme hasta el siguiente ciclo, pero revisa cada 5s si hay un escaneo manual pedido."""
+    elapsed = 0
+    check_every = 5
+    while elapsed < SCAN_INTERVAL_SECONDS:
+        time.sleep(check_every)
+        elapsed += check_every
+        if check_manual_trigger():
+            print("Escaneo manual solicitado desde el dashboard, iniciando ahora...")
+            return
+
+
 if __name__ == "__main__":
     while True:
         try:
             run_scan_cycle()
         except Exception as exc:
             print(f"Error en ciclo de escaneo: {exc}")
-        time.sleep(SCAN_INTERVAL_SECONDS)
+        wait_for_next_cycle()

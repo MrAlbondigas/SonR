@@ -74,6 +74,13 @@ CREATE TABLE credential_findings (
     UNIQUE (host_id, port, username)
 );
 
+CREATE TABLE scan_requests (
+    id SERIAL PRIMARY KEY,
+    requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    requested_by TEXT,
+    consumed_at TIMESTAMPTZ
+);
+
 CREATE INDEX idx_software_host ON software(host_id);
 CREATE INDEX idx_vuln_software ON vulnerabilities(software_id);
 CREATE INDEX idx_events_occurred ON events(occurred_at DESC);
