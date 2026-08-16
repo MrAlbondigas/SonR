@@ -8,6 +8,7 @@
   :root {
     color-scheme: dark;
     --surface-1:      #1a1a19;
+    --surface-2:      #212120;
     --page-plane:     #0d0d0d;
     --text-primary:   #ffffff;
     --text-secondary: #c3c2b7;
@@ -28,45 +29,100 @@
 
   * { box-sizing: border-box; }
 
+  html, body { height: 100%; }
+
   body {
     font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
     background: var(--page-plane);
     color: var(--text-primary);
     margin: 0;
-    padding: 2rem;
     line-height: 1.45;
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  /* Cursor-follow spotlight — subtle, purely decorative, ignores pointer events */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: radial-gradient(600px circle at var(--mx, 50%) var(--my, 20%),
+      rgba(57,135,229,0.07), transparent 60%);
+    transition: background 0.15s ease-out;
   }
 
   a { color: inherit; }
 
-  header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    margin-bottom: 1.75rem;
-  }
-  h1 { font-size: 1.4rem; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
-  h1 span { color: var(--text-muted); font-weight: 400; }
+  .shell { display: flex; min-height: 100vh; position: relative; z-index: 1; }
 
-  .nav { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
-  .nav .user { color: var(--text-secondary); font-size: 0.85rem; margin-right: 0.4rem; }
+  /* Sidebar */
+  .sidebar {
+    width: 220px; flex: none;
+    background: var(--surface-1); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    padding: 1.25rem 0.9rem;
+    position: sticky; top: 0; height: 100vh;
+  }
+  .brand { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em; padding: 0 0.5rem 1.4rem; }
+  .brand span { display: block; font-size: 0.72rem; font-weight: 400; color: var(--text-muted); margin-top: 0.15rem; }
+
+  .nav-item {
+    display: flex; align-items: center; gap: 0.65rem;
+    padding: 0.6rem 0.65rem; border-radius: 8px; margin-bottom: 0.15rem;
+    color: var(--text-secondary); text-decoration: none; font-size: 0.87rem;
+    cursor: pointer; position: relative; overflow: hidden;
+    transition: color 0.15s ease, background 0.2s ease;
+  }
+  .nav-item .icon { width: 18px; text-align: center; flex: none; font-size: 0.95rem; opacity: 0.85; }
+  .nav-item .count {
+    margin-left: auto; font-variant-numeric: tabular-nums; font-size: 0.72rem;
+    color: var(--text-muted); background: rgba(255,255,255,0.06);
+    border-radius: 999px; padding: 0.05rem 0.45rem;
+    transition: background 0.2s ease, color 0.2s ease;
+  }
+  .nav-item::before {
+    content: ""; position: absolute; inset: 0; left: -100%;
+    background: linear-gradient(90deg, rgba(57,135,229,0.14), transparent);
+    transition: left 0.35s ease;
+  }
+  .nav-item:hover { color: var(--text-primary); background: rgba(255,255,255,0.04); }
+  .nav-item:hover::before { left: 0; }
+  .nav-item.active { color: var(--text-primary); background: rgba(57,135,229,0.12); }
+  .nav-item.active .count { background: var(--series-blue); color: #fff; }
+  .nav-item.alert .count { background: rgba(208,59,59,0.25); color: #ff9d9d; }
+  .nav-item.active.alert .count { background: var(--status-critical); color: #fff; }
+
+  .sidebar-footer { margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--gridline); }
+  .sidebar-footer .user { font-size: 0.78rem; color: var(--text-secondary); padding: 0 0.5rem 0.6rem; }
+
+  /* Main content */
+  .main { flex: 1; min-width: 0; padding: 1.75rem 2.25rem 3rem; }
+
   .btn {
     display: inline-flex; align-items: center; gap: 0.4rem;
-    background: var(--surface-1); border: 1px solid var(--border);
+    background: var(--surface-2); border: 1px solid var(--border);
     color: var(--text-secondary); text-decoration: none;
-    font-size: 0.82rem; padding: 0.45rem 0.8rem; border-radius: 7px;
-    cursor: pointer; transition: border-color 0.15s, color 0.15s;
+    font-size: 0.82rem; padding: 0.5rem 0.85rem; border-radius: 7px;
+    cursor: pointer; width: 100%; margin-bottom: 0.4rem;
+    transition: border-color 0.15s, color 0.15s, transform 0.15s, background 0.15s;
   }
-  .btn:hover { border-color: var(--text-muted); color: var(--text-primary); }
+  .btn:hover { border-color: var(--series-blue); color: var(--text-primary); background: rgba(57,135,229,0.08); transform: translateX(2px); }
+
+  h1 { font-size: 1.3rem; margin: 0 0 1.5rem; font-weight: 650; letter-spacing: -0.01em; }
 
   h2 {
     font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em;
     color: var(--text-muted); font-weight: 650;
-    margin: 2.25rem 0 0.85rem;
+    margin: 0 0 0.85rem;
   }
-  section:first-of-type h2 { margin-top: 0; }
+
+  .view { display: none; animation: fade-in 0.25s ease; }
+  .view.active { display: block; }
+  @keyframes fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  section + section { margin-top: 2.25rem; }
 
   /* Stat tiles */
   .stat-row {
@@ -78,6 +134,11 @@
     background: var(--surface-1); border: 1px solid var(--border);
     border-radius: 10px; padding: 1rem 1.1rem;
     border-left: 3px solid var(--tile-accent, var(--baseline));
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  }
+  .stat-tile:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 24px -12px rgba(0,0,0,0.6), 0 0 0 1px var(--tile-accent, var(--border));
   }
   .stat-tile .value { font-size: 1.9rem; font-weight: 650; letter-spacing: -0.02em; }
   .stat-tile .label { font-size: 0.78rem; color: var(--text-muted); margin-top: 0.15rem; }
@@ -87,12 +148,13 @@
     background: var(--surface-1); border: 1px solid var(--border);
     border-radius: 10px; padding: 1.1rem 1.3rem;
   }
-  .sev-row { display: grid; grid-template-columns: 90px 1fr 2.5rem; align-items: center; gap: 0.75rem; }
-  .sev-row + .sev-row { margin-top: 0.65rem; }
+  .sev-row { display: grid; grid-template-columns: 90px 1fr 2.5rem; align-items: center; gap: 0.75rem; padding: 0.25rem 0; border-radius: 6px; transition: background 0.15s ease; }
+  .sev-row:hover { background: rgba(255,255,255,0.035); }
+  .sev-row + .sev-row { margin-top: 0.4rem; }
   .sev-name { font-size: 0.82rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.4rem; }
   .sev-dot { width: 8px; height: 8px; border-radius: 2px; flex: none; background: var(--dot-color); }
   .sev-track { background: var(--gridline); border-radius: 4px; height: 10px; overflow: hidden; }
-  .sev-fill { height: 100%; border-radius: 4px; background: var(--dot-color); min-width: 3px; }
+  .sev-fill { height: 100%; border-radius: 4px; background: var(--dot-color); min-width: 3px; transition: width 0.6s cubic-bezier(.2,.8,.2,1); }
   .sev-count { font-variant-numeric: tabular-nums; font-size: 0.82rem; color: var(--text-secondary); text-align: right; }
 
   /* Tables */
@@ -101,6 +163,8 @@
   th, td { text-align: left; padding: 0.65rem 1rem; border-bottom: 1px solid var(--gridline); font-size: 0.86rem; white-space: nowrap; }
   td:nth-child(6), th:nth-child(6) { white-space: normal; }
   th { background: rgba(255,255,255,0.03); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); font-weight: 650; }
+  tbody tr { transition: background 0.12s ease; }
+  tbody tr:hover { background: rgba(57,135,229,0.06); }
   tr:last-child td { border-bottom: none; }
   td.muted, .muted { color: var(--text-muted); }
   td.num { font-variant-numeric: tabular-nums; }
@@ -133,7 +197,9 @@
     background: var(--surface-1); border: 1px solid var(--border);
     border-left: 3px solid var(--status-critical);
     border-radius: 10px; padding: 0.9rem 1.1rem; margin-bottom: 0.7rem; font-size: 0.86rem;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
   }
+  .attack-path:hover { transform: translateX(3px); box-shadow: -3px 0 0 0 var(--status-critical); }
   .attack-path:last-child { margin-bottom: 0; }
   .attack-path .host { font-weight: 650; font-size: 0.92rem; }
   .attack-path .entry { color: var(--status-serious); font-size: 0.78rem; margin: 0.2rem 0 0.4rem; }
@@ -145,7 +211,8 @@
 
   /* Timeline */
   ul.timeline { list-style: none; padding: 0; margin: 0; background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-  ul.timeline li { padding: 0.65rem 1rem; border-bottom: 1px solid var(--gridline); border-left: 3px solid var(--baseline); font-size: 0.83rem; }
+  ul.timeline li { padding: 0.65rem 1rem; border-bottom: 1px solid var(--gridline); border-left: 3px solid var(--baseline); font-size: 0.83rem; transition: background 0.12s ease, padding-left 0.12s ease; }
+  ul.timeline li:hover { background: rgba(255,255,255,0.035); padding-left: 1.3rem; }
   ul.timeline li:last-child { border-bottom: none; }
   ul.timeline .ts { color: var(--text-muted); font-size: 0.72rem; display: block; margin-bottom: 0.1rem; font-variant-numeric: tabular-nums; }
   .event-new_host           { border-left-color: var(--series-aqua); }
@@ -153,139 +220,213 @@
   .event-version_change     { border-left-color: var(--status-warning); }
   .event-critical_vuln      { border-left-color: var(--status-critical); }
   .event-default_credentials{ border-left-color: var(--status-critical); }
+
+  @media (max-width: 720px) {
+    .shell { flex-direction: column; }
+    .sidebar { width: 100%; height: auto; position: relative; flex-direction: row; overflow-x: auto; padding: 0.75rem; }
+    .brand, .sidebar-footer { display: none; }
+    .nav-item { flex: none; }
+    .main { padding: 1.25rem; }
+  }
 </style>
 </head>
 <body>
-<header>
-  <h1>Proyecto Cyber <span>· inventario de red</span></h1>
-  <nav class="nav">
-    <span class="user">{{ username }}</span>
-    <a class="btn" href="/reports/latest">Descargar PDF</a>
-    <a class="btn" href="#" onclick="fetch('/auth/logout', {method:'POST'}).then(() => location.href='/login')">Cerrar sesión</a>
-  </nav>
-</header>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">Proyecto Cyber<span>Escáner de vulnerabilidades</span></div>
+    <nav>
+      <a class="nav-item active" data-view="resumen"><span class="icon">◆</span>Resumen</a>
+      <a class="nav-item" data-view="inventario"><span class="icon">▦</span>Inventario<span class="count">{{ stats.host_count }}</span></a>
+      <a class="nav-item {{ 'alert' if stats.total_vulns else '' }}" data-view="vulnerabilidades"><span class="icon">▲</span>Vulnerabilidades<span class="count">{{ stats.total_vulns }}</span></a>
+      <a class="nav-item {{ 'alert' if stats.attack_paths else '' }}" data-view="ataque"><span class="icon">✕</span>Rutas de ataque<span class="count">{{ stats.attack_paths }}</span></a>
+      <a class="nav-item" data-view="timeline"><span class="icon">↻</span>Timeline</a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user">{{ username }}</div>
+      <a class="btn" href="/reports/latest">Descargar PDF</a>
+      <a class="btn" href="#" onclick="fetch('/auth/logout', {method:'POST'}).then(() => location.href='/login')">Cerrar sesión</a>
+    </div>
+  </aside>
 
-<section>
-  <h2>Resumen</h2>
-  <div class="stat-row">
-    <div class="stat-tile" style="--tile-accent: var(--series-blue);">
-      <div class="value">{{ stats.host_count }}</div>
-      <div class="label">Equipos en la red</div>
-    </div>
-    <div class="stat-tile" style="--tile-accent: var(--series-blue);">
-      <div class="value">{{ stats.total_vulns }}</div>
-      <div class="label">Vulnerabilidades detectadas</div>
-    </div>
-    <div class="stat-tile" style="--tile-accent: {{ 'var(--status-critical)' if stats.critical_vulns else 'var(--status-good)' }};">
-      <div class="value">{{ stats.critical_vulns }}</div>
-      <div class="label">Críticas / exploit conocido</div>
-    </div>
-    <div class="stat-tile" style="--tile-accent: {{ 'var(--status-critical)' if stats.credential_findings else 'var(--status-good)' }};">
-      <div class="value">{{ stats.credential_findings }}</div>
-      <div class="label">Credenciales por defecto</div>
-    </div>
-    <div class="stat-tile" style="--tile-accent: {{ 'var(--status-critical)' if stats.attack_paths else 'var(--status-good)' }};">
-      <div class="value">{{ stats.attack_paths }}</div>
-      <div class="label">Rutas de ataque abiertas</div>
-    </div>
-  </div>
-</section>
+  <main class="main">
+    <!-- Resumen -->
+    <div class="view active" data-view="resumen">
+      <h1>Resumen</h1>
+      <section>
+        <h2>Estado de la red</h2>
+        <div class="stat-row">
+          <div class="stat-tile" style="--tile-accent: var(--series-blue);">
+            <div class="value">{{ stats.host_count }}</div>
+            <div class="label">Equipos en la red</div>
+          </div>
+          <div class="stat-tile" style="--tile-accent: var(--series-blue);">
+            <div class="value">{{ stats.total_vulns }}</div>
+            <div class="label">Vulnerabilidades detectadas</div>
+          </div>
+          <div class="stat-tile" style="--tile-accent: {{ 'var(--status-critical)' if stats.critical_vulns else 'var(--status-good)' }};">
+            <div class="value">{{ stats.critical_vulns }}</div>
+            <div class="label">Críticas / exploit conocido</div>
+          </div>
+          <div class="stat-tile" style="--tile-accent: {{ 'var(--status-critical)' if stats.credential_findings else 'var(--status-good)' }};">
+            <div class="value">{{ stats.credential_findings }}</div>
+            <div class="label">Credenciales por defecto</div>
+          </div>
+          <div class="stat-tile" style="--tile-accent: {{ 'var(--status-critical)' if stats.attack_paths else 'var(--status-good)' }};">
+            <div class="value">{{ stats.attack_paths }}</div>
+            <div class="label">Rutas de ataque abiertas</div>
+          </div>
+        </div>
+      </section>
 
-<section>
-  <h2>Vulnerabilidades por severidad</h2>
-  <div class="sev-chart">
-    {% set sev_colors = {'critical': 'var(--status-critical)', 'high': 'var(--status-serious)', 'medium': 'var(--status-warning)', 'low': 'var(--status-low)'} %}
-    {% set sev_labels = {'critical': 'Crítica', 'high': 'Alta', 'medium': 'Media', 'low': 'Baja'} %}
-    {% for s in severity_order %}
-    <div class="sev-row" style="--dot-color: {{ sev_colors[s] }};">
-      <div class="sev-name"><span class="sev-dot"></span>{{ sev_labels[s] }}</div>
-      <div class="sev-track"><div class="sev-fill" style="width: {{ (severity_counts[s] / max_severity_count * 100) if severity_counts[s] else 0 }}%;"></div></div>
-      <div class="sev-count">{{ severity_counts[s] }}</div>
+      <section>
+        <h2>Vulnerabilidades por severidad</h2>
+        <div class="sev-chart">
+          {% set sev_colors = {'critical': 'var(--status-critical)', 'high': 'var(--status-serious)', 'medium': 'var(--status-warning)', 'low': 'var(--status-low)'} %}
+          {% set sev_labels = {'critical': 'Crítica', 'high': 'Alta', 'medium': 'Media', 'low': 'Baja'} %}
+          {% for s in severity_order %}
+          <div class="sev-row" style="--dot-color: {{ sev_colors[s] }};">
+            <div class="sev-name"><span class="sev-dot"></span>{{ sev_labels[s] }}</div>
+            <div class="sev-track"><div class="sev-fill" style="width: {{ (severity_counts[s] / max_severity_count * 100) if severity_counts[s] else 0 }}%;"></div></div>
+            <div class="sev-count">{{ severity_counts[s] }}</div>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section>
+        <h2>Últimos cambios</h2>
+        <ul class="timeline">
+          {% for e in events[:5] %}
+          <li class="event-{{ e.event_type }}">
+            <span class="ts">{{ e.occurred_at }}</span>
+            {{ e.description }}
+          </li>
+          {% else %}
+          <li class="muted">Sin cambios registrados todavía.</li>
+          {% endfor %}
+        </ul>
+      </section>
     </div>
-    {% endfor %}
-  </div>
-</section>
 
-<section>
-  <h2>Top prioridades</h2>
-  <div class="table-wrap">
-  <table>
-    <thead>
-      <tr><th>CVE</th><th>Software</th><th>Equipo</th><th>CVSS</th><th>Severidad</th><th>Remediación</th></tr>
-    </thead>
-    <tbody>
-      {% set sev_colors = {'critical': 'var(--status-critical)', 'high': 'var(--status-serious)', 'medium': 'var(--status-warning)', 'low': 'var(--status-low)'} %}
-      {% set sev_labels = {'critical': 'Crítica', 'high': 'Alta', 'medium': 'Media', 'low': 'Baja'} %}
-      {% for v in priorities %}
-      <tr>
-        <td>{{ v.cve_id }}{% if v.known_exploited %}<span class="exploit-tag">EXPLOIT CONOCIDO</span>{% endif %}</td>
-        <td>{{ v.software.name }}</td>
-        <td>{{ v.software.host.ip }}</td>
-        <td class="num">{{ v.cvss or "—" }}</td>
-        <td>{% if v.severity %}<span class="badge sev-{{ v.severity }}">{{ sev_labels.get(v.severity, v.severity) }}</span>{% else %}—{% endif %}</td>
-        <td class="muted">{{ v.remediation or "—" }}</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="6" class="muted">Todavía no hay vulnerabilidades cruzadas con CVEs.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  </div>
-</section>
-
-<div class="grid-2">
-  <section>
-    <h2>Rutas de ataque</h2>
-    {% for p in attack_paths %}
-    <div class="attack-path">
-      <div class="host">{{ p.host_ip }}</div>
-      <div class="entry">Vía: {{ p.entry_points|join(" · ") }}</div>
-      <div class="desc">{{ p.description }}</div>
+    <!-- Inventario -->
+    <div class="view" data-view="inventario">
+      <h1>Inventario de equipos</h1>
+      <section>
+        <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>IP</th><th>Hostname</th><th>MAC</th><th>Fabricante</th><th>SO estimado</th><th>Software</th><th>Última vez visto</th></tr>
+          </thead>
+          <tbody>
+            {% for h in hosts %}
+            <tr>
+              <td>{{ h.ip }}</td>
+              <td>{{ h.hostname or "—" }}</td>
+              <td class="muted">{{ h.mac or "—" }}</td>
+              <td>{{ h.vendor or "—" }}</td>
+              <td>{{ h.os_guess or "—" }}</td>
+              <td><span class="badge count">{{ h.software|length }}</span></td>
+              <td class="muted num">{{ h.last_seen }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="muted">Todavía no hay escaneos. El escáner corre cada pocos minutos.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </section>
     </div>
-    {% else %}
-    <p class="empty-state">No se detectaron rutas de ataque explotables por ahora (sin credenciales por defecto ni CVEs críticos confirmados).</p>
-    {% endfor %}
-  </section>
 
-  <section>
-    <h2>Timeline de cambios</h2>
-    <ul class="timeline">
-      {% for e in events %}
-      <li class="event-{{ e.event_type }}">
-        <span class="ts">{{ e.occurred_at }}</span>
-        {{ e.description }}
-      </li>
-      {% else %}
-      <li class="muted">Sin cambios registrados todavía.</li>
-      {% endfor %}
-    </ul>
-  </section>
+    <!-- Vulnerabilidades -->
+    <div class="view" data-view="vulnerabilidades">
+      <h1>Top prioridades</h1>
+      <section>
+        <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>CVE</th><th>Software</th><th>Equipo</th><th>CVSS</th><th>Severidad</th><th>Remediación</th></tr>
+          </thead>
+          <tbody>
+            {% set sev_colors = {'critical': 'var(--status-critical)', 'high': 'var(--status-serious)', 'medium': 'var(--status-warning)', 'low': 'var(--status-low)'} %}
+            {% set sev_labels = {'critical': 'Crítica', 'high': 'Alta', 'medium': 'Media', 'low': 'Baja'} %}
+            {% for v in priorities %}
+            <tr>
+              <td>{{ v.cve_id }}{% if v.known_exploited %}<span class="exploit-tag">EXPLOIT CONOCIDO</span>{% endif %}</td>
+              <td>{{ v.software.name }}</td>
+              <td>{{ v.software.host.ip }}</td>
+              <td class="num">{{ v.cvss or "—" }}</td>
+              <td>{% if v.severity %}<span class="badge sev-{{ v.severity }}">{{ sev_labels.get(v.severity, v.severity) }}</span>{% else %}—{% endif %}</td>
+              <td class="muted">{{ v.remediation or "—" }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="muted">Todavía no hay vulnerabilidades cruzadas con CVEs.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- Rutas de ataque -->
+    <div class="view" data-view="ataque">
+      <h1>Rutas de ataque</h1>
+      <section>
+        {% for p in attack_paths %}
+        <div class="attack-path">
+          <div class="host">{{ p.host_ip }}</div>
+          <div class="entry">Vía: {{ p.entry_points|join(" · ") }}</div>
+          <div class="desc">{{ p.description }}</div>
+        </div>
+        {% else %}
+        <p class="empty-state">No se detectaron rutas de ataque explotables por ahora (sin credenciales por defecto ni CVEs críticos confirmados).</p>
+        {% endfor %}
+      </section>
+    </div>
+
+    <!-- Timeline -->
+    <div class="view" data-view="timeline">
+      <h1>Timeline de cambios</h1>
+      <section>
+        <ul class="timeline">
+          {% for e in events %}
+          <li class="event-{{ e.event_type }}">
+            <span class="ts">{{ e.occurred_at }}</span>
+            {{ e.description }}
+          </li>
+          {% else %}
+          <li class="muted">Sin cambios registrados todavía.</li>
+          {% endfor %}
+        </ul>
+      </section>
+    </div>
+  </main>
 </div>
 
-<section>
-  <h2>Inventario de equipos</h2>
-  <div class="table-wrap">
-  <table>
-    <thead>
-      <tr><th>IP</th><th>Hostname</th><th>MAC</th><th>Fabricante</th><th>SO estimado</th><th>Software</th><th>Última vez visto</th></tr>
-    </thead>
-    <tbody>
-      {% for h in hosts %}
-      <tr>
-        <td>{{ h.ip }}</td>
-        <td>{{ h.hostname or "—" }}</td>
-        <td class="muted">{{ h.mac or "—" }}</td>
-        <td>{{ h.vendor or "—" }}</td>
-        <td>{{ h.os_guess or "—" }}</td>
-        <td><span class="badge count">{{ h.software|length }}</span></td>
-        <td class="muted num">{{ h.last_seen }}</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="7" class="muted">Todavía no hay escaneos. El escáner corre cada pocos minutos.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  </div>
-</section>
+<script>
+  // Sidebar navigation — switch views without a page reload
+  const navItems = document.querySelectorAll(".nav-item[data-view]");
+  const views = document.querySelectorAll(".view[data-view]");
+  function showView(name) {
+    views.forEach(v => v.classList.toggle("active", v.dataset.view === name));
+    navItems.forEach(n => n.classList.toggle("active", n.dataset.view === name));
+    if (history.replaceState) history.replaceState(null, "", "#" + name);
+  }
+  navItems.forEach(item => {
+    item.addEventListener("click", (e) => {
+      e.preventDefault();
+      showView(item.dataset.view);
+    });
+  });
+  const initial = location.hash.replace("#", "");
+  if (initial && document.querySelector('.view[data-view="' + initial + '"]')) {
+    showView(initial);
+  }
+
+  // Cursor-follow spotlight in the background
+  document.addEventListener("mousemove", (e) => {
+    document.body.style.setProperty("--mx", e.clientX + "px");
+    document.body.style.setProperty("--my", e.clientY + "px");
+  });
+</script>
 </body>
 </html>
