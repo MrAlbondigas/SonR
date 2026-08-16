@@ -33,6 +33,7 @@ CREATE TABLE software (
     port INTEGER,
     detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     cve_checked_at TIMESTAMPTZ,
+    removed_at TIMESTAMPTZ,
     UNIQUE (host_id, name, port)
 );
 
@@ -45,7 +46,20 @@ CREATE TABLE vulnerabilities (
     description TEXT,
     remediation TEXT,
     known_exploited BOOLEAN NOT NULL DEFAULT false,
-    detected_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    resolved_at TIMESTAMPTZ
+);
+
+CREATE TABLE risk_snapshots (
+    id SERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    host_count INTEGER NOT NULL,
+    critical_count INTEGER NOT NULL,
+    high_count INTEGER NOT NULL,
+    medium_count INTEGER NOT NULL,
+    low_count INTEGER NOT NULL,
+    credential_findings INTEGER NOT NULL,
+    total_score INTEGER NOT NULL
 );
 
 CREATE TABLE alerts (

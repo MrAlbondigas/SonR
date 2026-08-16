@@ -268,6 +268,20 @@
   .sev-fill { height: 100%; border-radius: 4px; background: var(--dot-color); min-width: 3px; transition: width 0.6s cubic-bezier(.2,.8,.2,1); }
   .sev-count { font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 0.82rem; color: var(--text-secondary); text-align: right; }
 
+  /* Trend chart */
+  h2 .trend-delta {
+    display: inline-flex; align-items: center; gap: 0.25rem;
+    font-size: 0.72rem; font-weight: 650; letter-spacing: 0; text-transform: none;
+    margin-left: 0.6rem; padding: 0.1rem 0.5rem; border-radius: 999px;
+  }
+  h2 .trend-delta.up { color: var(--status-critical); background: rgba(208,59,59,0.12); }
+  h2 .trend-delta.down { color: var(--status-good); background: rgba(12,163,12,0.12); }
+  .trend-chart-wrap {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 1rem 1.1rem; height: 200px; box-sizing: border-box;
+  }
+  .trend-chart { width: 100%; height: 100%; display: block; }
+
   /* Tables */
   table { width: 100%; border-collapse: collapse; background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
   .table-wrap { overflow-x: auto; border-radius: 10px; }
@@ -331,6 +345,8 @@
   .event-version_change     { border-left-color: var(--status-warning); }
   .event-critical_vuln      { border-left-color: var(--status-critical); }
   .event-default_credentials{ border-left-color: var(--status-critical); }
+  .event-service_removed    { border-left-color: var(--status-good); }
+  .event-vuln_reopened      { border-left-color: var(--status-serious); }
 
   /* HUD corner-bracket frame, reusable */
   .hud-frame { position: relative; }
@@ -439,6 +455,12 @@
           <span class="label-text">Timeline</span>
         </a>
 
+        <div class="nav-group-label label-text">Análisis</div>
+        <a class="nav-item" data-view="tendencia" title="Tendencia">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17 L9.5 10 L14 14.5 L21 6"/><path d="M15 6 H21 V12"/></svg></span>
+          <span class="label-text">Tendencia</span>
+        </a>
+
         {% if is_admin %}
         <div class="nav-group-label label-text">Sistema</div>
         <a class="nav-item" data-view="demo" title="Demo">
@@ -495,6 +517,10 @@
       <section>
         <h2>Estado de la red</h2>
         <div class="stat-row">
+          <div class="stat-tile" style="--tile-accent: {{ network_level_color }};">
+            <div class="value">{{ network_score }}</div>
+            <div class="label">Riesgo de la red ({{ network_level_label }})</div>
+          </div>
           <div class="stat-tile" style="--tile-accent: var(--series-blue);">
             <div class="value">{{ stats.host_count }}</div>
             <div class="label">Equipos en la red</div>
@@ -627,10 +653,11 @@
         <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>IP</th><th>Hostname</th><th>MAC</th><th>Fabricante</th><th>SO estimado</th><th>Software</th><th>Última vez visto</th></tr>
+            <tr><th>IP</th><th>Hostname</th><th>MAC</th><th>Fabricante</th><th>SO estimado</th><th>Software</th><th>Riesgo</th><th>Última vez visto</th></tr>
           </thead>
           <tbody>
             {% for h in hosts %}
+            {% set risk = host_risk_by_id[h.id] %}
             <tr>
               <td>{{ h.ip }}</td>
               <td>{{ h.hostname or "—" }}</td>
@@ -638,10 +665,11 @@
               <td>{{ h.vendor or "—" }}</td>
               <td>{{ h.os_guess or "—" }}</td>
               <td><span class="badge count">{{ h.software|length }}</span></td>
+              <td><span class="badge" style="background: color-mix(in srgb, {{ risk.level_color }} 15%, transparent); color: {{ risk.level_color }};">{{ risk.level_label }} · {{ risk.score }}</span></td>
               <td class="muted num">{{ h.last_seen }}</td>
             </tr>
             {% else %}
-            <tr><td colspan="7" class="muted">Todavía no hay escaneos. El escáner corre cada pocos minutos.</td></tr>
+            <tr><td colspan="8" class="muted">Todavía no hay escaneos. El escáner corre cada pocos minutos.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -709,6 +737,76 @@
           <li class="muted">Sin cambios registrados todavía.</li>
           {% endfor %}
         </ul>
+      </section>
+    </div>
+
+    <!-- Tendencia -->
+    <div class="view" data-view="tendencia">
+      <h1>Tendencia y riesgo</h1>
+      <section>
+        <div class="stat-row">
+          <div class="stat-tile" style="--tile-accent: {{ network_level_color }};">
+            <div class="value">{{ network_score }}</div>
+            <div class="label">Riesgo total de la red</div>
+          </div>
+          <div class="stat-tile" style="--tile-accent: var(--series-blue);">
+            <div class="value">{{ network_avg }}</div>
+            <div class="label">Riesgo medio por equipo</div>
+          </div>
+          <div class="stat-tile" style="--tile-accent: {{ 'var(--status-critical)' if new_vulns_7d else 'var(--status-good)' }};">
+            <div class="value">{{ new_vulns_7d }}</div>
+            <div class="label">Vulnerabilidades nuevas (7 días)</div>
+          </div>
+          <div class="stat-tile" style="--tile-accent: var(--status-good);">
+            <div class="value">{{ resolved_vulns_7d }}</div>
+            <div class="label">Vulnerabilidades resueltas (7 días)</div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>
+          Riesgo de la red a lo largo del tiempo
+          {% if risk_delta is not none and risk_delta != 0 %}
+          <span class="trend-delta {{ 'up' if risk_delta > 0 else 'down' }}">
+            {{ '▲' if risk_delta > 0 else '▼' }} {{ risk_delta|abs }} desde el último cambio
+          </span>
+          {% endif %}
+        </h2>
+        <div class="hud-frame trend-chart-wrap">
+          {% if snapshot_count >= 2 %}
+          <svg viewBox="0 0 {{ chart_w }} {{ chart_h }}" class="trend-chart" preserveAspectRatio="none">
+            <polygon points="{{ trend_area }}" fill="rgba(57,135,229,0.14)" stroke="none"></polygon>
+            <polyline points="{{ trend_line }}" fill="none" stroke="var(--series-blue)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></polyline>
+          </svg>
+          {% else %}
+          <p class="empty-state">Todavía no hay suficiente historial. La tendencia aparecerá tras un par de escaneos o cambios detectados.</p>
+          {% endif %}
+        </div>
+      </section>
+
+      <section>
+        <h2>Riesgo por equipo</h2>
+        <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Equipo</th><th>Nivel</th><th>Puntuación</th><th>Vulnerabilidades abiertas</th><th>Credenciales por defecto</th></tr>
+          </thead>
+          <tbody>
+            {% for r in host_risks %}
+            <tr>
+              <td>{{ r.hostname or r.ip }}</td>
+              <td><span class="badge" style="background: color-mix(in srgb, {{ r.level_color }} 15%, transparent); color: {{ r.level_color }};">{{ r.level_label }}</span></td>
+              <td class="num">{{ r.score }}</td>
+              <td class="num">{{ r.open_vulns }}</td>
+              <td class="num">{{ r.credential_findings }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="muted">Todavía no hay equipos escaneados.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
       </section>
     </div>
   </main>

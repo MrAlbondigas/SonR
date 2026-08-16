@@ -60,6 +60,20 @@ class ScanRequest(Base):
     consumed_at = Column(TIMESTAMP(timezone=True))
 
 
+class RiskSnapshot(Base):
+    __tablename__ = "risk_snapshots"
+
+    id = Column(Integer, primary_key=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    host_count = Column(Integer, nullable=False)
+    critical_count = Column(Integer, nullable=False)
+    high_count = Column(Integer, nullable=False)
+    medium_count = Column(Integer, nullable=False)
+    low_count = Column(Integer, nullable=False)
+    credential_findings = Column(Integer, nullable=False)
+    total_score = Column(Integer, nullable=False)
+
+
 class Software(Base):
     __tablename__ = "software"
 
@@ -71,6 +85,7 @@ class Software(Base):
     port = Column(Integer)
     detected_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     cve_checked_at = Column(TIMESTAMP(timezone=True))
+    removed_at = Column(TIMESTAMP(timezone=True))
 
     host = relationship("Host", back_populates="software")
     vulnerabilities = relationship(
@@ -90,6 +105,7 @@ class Vulnerability(Base):
     remediation = Column(Text)
     known_exploited = Column(Boolean, nullable=False, default=False)
     detected_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    resolved_at = Column(TIMESTAMP(timezone=True))
 
     software = relationship("Software", back_populates="vulnerabilities")
 

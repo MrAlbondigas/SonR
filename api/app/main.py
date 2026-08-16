@@ -227,7 +227,9 @@ def ingest_scan(payload: schemas.ScanIngest, db: Session = Depends(get_db)):
         host.os_guess = host_in.os_guess or host.os_guess
         host.last_seen = func.now()
 
+        seen_keys = set()
         for sw_in in host_in.software:
+            seen_keys.add((sw_in.name, sw_in.port))
             existing = (
                 db.query(models.Software)
                 .filter(
@@ -256,7 +258,20 @@ def ingest_scan(payload: schemas.ScanIngest, db: Session = Depends(get_db)):
                         )
                     )
             else:
+                if existing.removed_at is not None:
+                    existing.removed_at = None
+                    db.add(
+                        models.Event(
+                            host_id=host.id,
+                            event_type="new_service",
+                            description=f"Servicio vuelve a estar activo en {host_in.ip}: {sw_in.name} (puerto {sw_in.port})",
+                        )
+                    )
                 if sw_in.version and existing.version != sw_in.version:
+                    resolved_count = 0
+                    for v in open_vulns(existing):
+                        v.resolved_at = func.now()
+                        resolved_count += 1
                     db.add(
                         models.Event(
                             host_id=host.id,
@@ -264,6 +279,7 @@ def ingest_scan(payload: schemas.ScanIngest, db: Session = Depends(get_db)):
                             description=(
                                 f"{sw_in.name} en {host_in.ip} cambio de version: "
                                 f"{existing.version or 'desconocida'} -> {sw_in.version}"
+                                + (f" ({resolved_count} vulnerabilidad(es) marcada(s) como resueltas, pendiente de reverificar)" if resolved_count else "")
                             ),
                         )
                     )
@@ -272,9 +288,35 @@ def ingest_scan(payload: schemas.ScanIngest, db: Session = Depends(get_db)):
                 existing.scan_id = scan.id
                 existing.detected_at = func.now()
 
+        if not is_new_host:
+            still_present = (
+                db.query(models.Software)
+                .filter(models.Software.host_id == host.id, models.Software.removed_at.is_(None))
+                .all()
+            )
+            for sw in still_present:
+                if (sw.name, sw.port) in seen_keys:
+                    continue
+                sw.removed_at = func.now()
+                resolved_count = 0
+                for v in open_vulns(sw):
+                    v.resolved_at = func.now()
+                    resolved_count += 1
+                db.add(
+                    models.Event(
+                        host_id=host.id,
+                        event_type="service_removed",
+                        description=(
+                            f"Servicio ya no detectado en {host_in.ip}: {sw.name} (puerto {sw.port})"
+                            + (f" — {resolved_count} vulnerabilidad(es) asociada(s) marcada(s) como resuelta(s)" if resolved_count else "")
+                        ),
+                    )
+                )
+
     scan.status = "completed"
     scan.finished_at = func.now()
     db.commit()
+    record_risk_snapshot(db)
     return {"scan_id": scan.id, "hosts_ingested": len(payload.hosts)}
 
 
@@ -287,7 +329,8 @@ def software_pending(db: Session = Depends(get_db)):
     rows = (
         db.query(models.Software)
         .filter(
-            (models.Software.cve_checked_at.is_(None)) | (models.Software.cve_checked_at < cutoff)
+            models.Software.removed_at.is_(None),
+            (models.Software.cve_checked_at.is_(None)) | (models.Software.cve_checked_at < cutoff),
         )
         .limit(20)
         .all()
@@ -301,10 +344,25 @@ def ingest_vulnerabilities(payload: schemas.VulnerabilityIngest, db: Session = D
     if not software:
         raise HTTPException(status_code=404, detail="Software not found")
 
-    existing_cves = {v.cve_id for v in software.vulnerabilities}
+    existing_by_cve = {v.cve_id: v for v in software.vulnerabilities}
     new_count = 0
+    reopened_count = 0
     for vuln_in in payload.vulnerabilities:
-        if vuln_in.cve_id in existing_cves:
+        existing = existing_by_cve.get(vuln_in.cve_id)
+        if existing is not None:
+            if existing.resolved_at is not None:
+                existing.resolved_at = None
+                reopened_count += 1
+                db.add(
+                    models.Event(
+                        host_id=software.host_id,
+                        event_type="vuln_reopened",
+                        description=(
+                            f"{vuln_in.cve_id} vuelve a detectarse en {software.name}: "
+                            f"la version instalada sigue siendo vulnerable"
+                        ),
+                    )
+                )
             continue
         db.add(models.Vulnerability(software_id=software.id, **vuln_in.model_dump()))
         new_count += 1
@@ -320,7 +378,9 @@ def ingest_vulnerabilities(payload: schemas.VulnerabilityIngest, db: Session = D
             )
     software.cve_checked_at = datetime.now(timezone.utc)
     db.commit()
-    return {"software_id": software.id, "new_vulnerabilities": new_count}
+    if new_count or reopened_count:
+        record_risk_snapshot(db)
+    return {"software_id": software.id, "new_vulnerabilities": new_count, "reopened": reopened_count}
 
 
 # --- Credenciales por defecto (usado por el servicio credcheck) ---
@@ -367,6 +427,7 @@ def ingest_credential(payload: schemas.CredentialFindingIn, db: Session = Depend
             )
         )
         db.commit()
+        record_risk_snapshot(db)
     return {"ok": True}
 
 
@@ -393,6 +454,7 @@ def list_priorities(db: Session = Depends(get_db)):
     vulns = (
         db.query(models.Vulnerability)
         .join(models.Software)
+        .filter(models.Vulnerability.resolved_at.is_(None), models.Software.removed_at.is_(None))
         .order_by(models.Vulnerability.known_exploited.desc(), models.Vulnerability.cvss.desc().nullslast())
         .limit(5)
         .all()
@@ -411,6 +473,96 @@ def list_priorities(db: Session = Depends(get_db)):
     ]
 
 
+SEVERITY_WEIGHTS = {"critical": 10, "high": 6, "medium": 3, "low": 1}
+KEV_BONUS = 8
+CREDENTIAL_BONUS = 12
+RISK_LEVELS = [
+    (18, "critico", "Crítico", "var(--status-critical)"),
+    (8, "alto", "Alto", "var(--status-serious)"),
+    (1, "medio", "Medio", "var(--status-warning)"),
+    (0, "bajo", "Bajo", "var(--status-good)"),
+]
+
+
+def open_vulns(software: models.Software) -> list[models.Vulnerability]:
+    return [v for v in software.vulnerabilities if v.resolved_at is None]
+
+
+def risk_level_for_score(score: int) -> tuple[str, str, str]:
+    for threshold, key, label, color in RISK_LEVELS:
+        if score >= threshold:
+            return key, label, color
+    return RISK_LEVELS[-1][1], RISK_LEVELS[-1][2], RISK_LEVELS[-1][3]
+
+
+def compute_host_risk(host: models.Host) -> dict:
+    score = 0
+    open_vuln_count = 0
+    for s in host.software:
+        if s.removed_at is not None:
+            continue
+        for v in open_vulns(s):
+            open_vuln_count += 1
+            score += SEVERITY_WEIGHTS.get(v.severity, 2)
+            if v.known_exploited:
+                score += KEV_BONUS
+    score += CREDENTIAL_BONUS * len(host.credential_findings)
+    level_key, level_label, level_color = risk_level_for_score(score)
+    return {
+        "host_id": host.id,
+        "ip": host.ip,
+        "hostname": host.hostname,
+        "score": score,
+        "open_vulns": open_vuln_count,
+        "credential_findings": len(host.credential_findings),
+        "level_key": level_key,
+        "level_label": level_label,
+        "level_color": level_color,
+    }
+
+
+def record_risk_snapshot(db: Session) -> None:
+    hosts = db.query(models.Host).all()
+    counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    total_score = 0
+    for host in hosts:
+        risk = compute_host_risk(host)
+        total_score += risk["score"]
+        for s in host.software:
+            if s.removed_at is not None:
+                continue
+            for v in open_vulns(s):
+                if v.severity in counts:
+                    counts[v.severity] += 1
+    credential_count = db.query(models.CredentialFinding).count()
+
+    last = db.query(models.RiskSnapshot).order_by(models.RiskSnapshot.id.desc()).first()
+    if (
+        last is not None
+        and last.host_count == len(hosts)
+        and last.critical_count == counts["critical"]
+        and last.high_count == counts["high"]
+        and last.medium_count == counts["medium"]
+        and last.low_count == counts["low"]
+        and last.credential_findings == credential_count
+        and last.total_score == total_score
+    ):
+        return
+
+    db.add(
+        models.RiskSnapshot(
+            host_count=len(hosts),
+            critical_count=counts["critical"],
+            high_count=counts["high"],
+            medium_count=counts["medium"],
+            low_count=counts["low"],
+            credential_findings=credential_count,
+            total_score=total_score,
+        )
+    )
+    db.commit()
+
+
 def compute_attack_paths(db: Session) -> list[dict]:
     hosts = db.query(models.Host).all()
     total_hosts = len(hosts)
@@ -420,7 +572,8 @@ def compute_attack_paths(db: Session) -> list[dict]:
         critical_vulns = [
             v
             for s in host.software
-            for v in s.vulnerabilities
+            if s.removed_at is None
+            for v in open_vulns(s)
             if v.known_exploited or (v.cvss or 0) >= 9.0
         ]
         weak_creds = host.credential_findings
@@ -470,6 +623,7 @@ def report_data(db: Session = Depends(get_db)):
     priorities = (
         db.query(models.Vulnerability)
         .join(models.Software)
+        .filter(models.Vulnerability.resolved_at.is_(None), models.Software.removed_at.is_(None))
         .order_by(models.Vulnerability.known_exploited.desc(), models.Vulnerability.cvss.desc().nullslast())
         .limit(10)
         .all()
@@ -595,6 +749,7 @@ def seed_demo_data(db: Session = Depends(get_db), admin: models.User = Depends(a
     db.add(models.DemoRecord(table_name="events", record_id=demo_event_2.id))
 
     db.commit()
+    record_risk_snapshot(db)
     return {"ok": True, "already_seeded": False}
 
 
@@ -616,6 +771,7 @@ def clear_demo_data(db: Session = Depends(get_db), admin: models.User = Depends(
             db.delete(row)
     db.query(models.DemoRecord).delete()
     db.commit()
+    record_risk_snapshot(db)
     return {"ok": True, "removed": len(records)}
 
 
@@ -633,13 +789,19 @@ def dashboard(
     priorities = (
         db.query(models.Vulnerability)
         .join(models.Software)
+        .filter(models.Vulnerability.resolved_at.is_(None), models.Software.removed_at.is_(None))
         .order_by(models.Vulnerability.known_exploited.desc(), models.Vulnerability.cvss.desc().nullslast())
         .limit(5)
         .all()
     )
     attack_paths = compute_attack_paths(db)
 
-    all_vulns = db.query(models.Vulnerability).all()
+    all_vulns = (
+        db.query(models.Vulnerability)
+        .join(models.Software)
+        .filter(models.Vulnerability.resolved_at.is_(None), models.Software.removed_at.is_(None))
+        .all()
+    )
     severity_order = ["critical", "high", "medium", "low"]
     severity_counts = {s: 0 for s in severity_order}
     for v in all_vulns:
@@ -648,10 +810,8 @@ def dashboard(
     max_severity_count = max(severity_counts.values()) if any(severity_counts.values()) else 1
 
     credential_count = db.query(models.CredentialFinding).count()
-    critical_vuln_count = (
-        db.query(models.Vulnerability)
-        .filter((models.Vulnerability.known_exploited.is_(True)) | (models.Vulnerability.cvss >= 9.0))
-        .count()
+    critical_vuln_count = sum(
+        1 for v in all_vulns if v.known_exploited or (v.cvss or 0) >= 9.0
     )
 
     stats = {
@@ -668,6 +828,46 @@ def dashboard(
         db.query(models.ScanRequest).filter(models.ScanRequest.consumed_at.is_(None)).first()
     )
     demo_active = db.query(models.DemoRecord).first() is not None
+
+    # --- Riesgo y tendencia ---
+    host_risks = sorted((compute_host_risk(h) for h in hosts), key=lambda r: r["score"], reverse=True)
+    host_risk_by_id = {r["host_id"]: r for r in host_risks}
+    network_score = sum(r["score"] for r in host_risks)
+    network_avg = round(network_score / len(hosts)) if hosts else 0
+    network_level_key, network_level_label, network_level_color = risk_level_for_score(network_avg)
+    stats["risk_score"] = network_score
+
+    snapshots = (
+        db.query(models.RiskSnapshot).order_by(models.RiskSnapshot.id.desc()).limit(40).all()
+    )
+    snapshots.reverse()
+    risk_delta = None
+    if len(snapshots) >= 2:
+        risk_delta = snapshots[-1].total_score - snapshots[-2].total_score
+
+    chart_w, chart_h, pad = 640, 160, 12
+    max_snap_score = max((s.total_score for s in snapshots), default=0) or 1
+    step_x = (chart_w - 2 * pad) / (len(snapshots) - 1) if len(snapshots) > 1 else 0
+    trend_points = []
+    for i, s in enumerate(snapshots):
+        x = pad + i * step_x
+        y = chart_h - pad - (s.total_score / max_snap_score) * (chart_h - 2 * pad)
+        trend_points.append(f"{x:.1f},{y:.1f}")
+    trend_line = " ".join(trend_points)
+    trend_area = ""
+    if trend_points:
+        first_x = trend_points[0].split(",")[0]
+        last_x = trend_points[-1].split(",")[0]
+        trend_area = f"{first_x},{chart_h - pad} " + trend_line + f" {last_x},{chart_h - pad}"
+
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    new_vulns_7d = (
+        db.query(models.Vulnerability).filter(models.Vulnerability.detected_at >= week_ago).count()
+    )
+    resolved_vulns_7d = (
+        db.query(models.Vulnerability).filter(models.Vulnerability.resolved_at >= week_ago).count()
+    )
+    new_hosts_7d = db.query(models.Host).filter(models.Host.first_seen >= week_ago).count()
 
     return templates.TemplateResponse(
         "dashboard.html",
@@ -688,6 +888,21 @@ def dashboard(
             "is_authenticated": current_user is not None,
             "is_admin": current_user is not None and current_user.role == "admin",
             "username": current_user.username if current_user else None,
+            "host_risks": host_risks,
+            "host_risk_by_id": host_risk_by_id,
+            "network_score": network_score,
+            "network_avg": network_avg,
+            "network_level_label": network_level_label,
+            "network_level_color": network_level_color,
+            "risk_delta": risk_delta,
+            "snapshot_count": len(snapshots),
+            "chart_w": chart_w,
+            "chart_h": chart_h,
+            "trend_line": trend_line,
+            "trend_area": trend_area,
+            "new_vulns_7d": new_vulns_7d,
+            "resolved_vulns_7d": resolved_vulns_7d,
+            "new_hosts_7d": new_hosts_7d,
         },
     )
 
