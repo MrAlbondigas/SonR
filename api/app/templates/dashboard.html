@@ -86,27 +86,83 @@
 
   /* Sidebar */
   .sidebar {
-    width: 220px; flex: none;
+    --sidebar-w: 240px;
+    width: var(--sidebar-w); flex: none;
     background: var(--surface-1); border-right: 1px solid var(--border);
     display: flex; flex-direction: column;
-    padding: 1.25rem 0.9rem;
-    position: sticky; top: 0; height: 100vh;
+    padding: 1.1rem 0.85rem;
+    position: sticky; top: 0; height: 100vh; overflow-y: auto; overflow-x: hidden;
+    transition: width 0.22s ease;
   }
-  .brand { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em; padding: 0 0.5rem 1.4rem; }
-  .brand span { display: block; font-size: 0.72rem; font-weight: 400; color: var(--text-muted); margin-top: 0.15rem; }
+  .sidebar.collapsed { --sidebar-w: 68px; padding-left: 0.6rem; padding-right: 0.6rem; }
+  .sidebar.collapsed .label-text,
+  .sidebar.collapsed .nav-group-label { display: none; }
+  .sidebar.collapsed .brand { justify-content: center; }
+  .sidebar.collapsed .collapse-btn svg { transform: rotate(180deg); }
+  .sidebar.collapsed .nav-item { justify-content: center; }
+  .sidebar.collapsed .status-chip { justify-content: center; padding-left: 0; padding-right: 0; }
+  .sidebar.collapsed .user-card { justify-content: center; }
+  .sidebar.collapsed .footer-actions .btn { justify-content: center; }
+
+  .sidebar-top { display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0 0.15rem 1rem; }
+  .brand { display: flex; align-items: center; gap: 0.6rem; min-width: 0; }
+  .brand-mark {
+    flex: none; width: 30px; height: 30px; border-radius: 8px;
+    background: linear-gradient(135deg, var(--series-blue), var(--series-aqua));
+    color: #fff; font-size: 0.72rem; font-weight: 750; letter-spacing: 0.01em;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 16px rgba(57,135,229,0.35);
+  }
+  .brand-text { min-width: 0; overflow: hidden; }
+  .brand-name { font-size: 0.98rem; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; }
+  .brand span { display: block; font-size: 0.68rem; font-weight: 400; color: var(--text-muted); margin-top: 0.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .collapse-btn {
+    flex: none; width: 26px; height: 26px; border-radius: 6px;
+    background: transparent; border: 1px solid var(--border); color: var(--text-muted);
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .collapse-btn:hover { color: var(--text-primary); border-color: var(--series-blue); background: rgba(57,135,229,0.08); }
+  .collapse-btn svg { width: 13px; height: 13px; transition: transform 0.22s ease; }
+
+  .status-chip {
+    display: flex; align-items: center; gap: 0.45rem;
+    font-size: 0.72rem; color: var(--text-muted); font-weight: 550;
+    padding: 0.4rem 0.55rem; margin-bottom: 1rem;
+    background: rgba(12,163,12,0.07); border: 1px solid rgba(12,163,12,0.18); border-radius: 6px;
+  }
+  .status-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--status-good); flex: none; box-shadow: 0 0 6px var(--status-good); animation: pulse 2s ease-in-out infinite; }
+
+  .nav-group-label {
+    font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.07em; font-weight: 650;
+    color: var(--text-muted); opacity: 0.7; padding: 0.9rem 0.55rem 0.35rem;
+  }
+  nav > .nav-group-label:first-child, .nav-rail > .nav-group-label:first-child { padding-top: 0; }
+
+  .nav-rail { position: relative; }
+  .nav-indicator {
+    position: absolute; left: 0; top: 0; width: 3px; height: 38px; border-radius: 0 3px 3px 0;
+    background: var(--series-blue); box-shadow: 0 0 8px rgba(57,135,229,0.6);
+    transform: translateY(0px); transition: transform 0.28s cubic-bezier(.3,.9,.4,1), opacity 0.2s ease;
+    opacity: 0;
+  }
+  .nav-indicator.ready { opacity: 1; }
 
   .nav-item {
     display: flex; align-items: center; gap: 0.65rem;
-    padding: 0.6rem 0.65rem; border-radius: 8px; margin-bottom: 0.15rem;
-    color: var(--text-secondary); text-decoration: none; font-size: 0.87rem;
+    padding: 0.62rem 0.65rem; border-radius: 8px; margin-bottom: 0.1rem;
+    color: var(--text-secondary); text-decoration: none; font-size: 0.86rem;
     cursor: pointer; position: relative; overflow: hidden;
     transition: color 0.15s ease, background 0.2s ease;
   }
-  .nav-item .icon { width: 18px; text-align: center; flex: none; font-size: 0.95rem; opacity: 0.85; }
+  .nav-item .icon { width: 18px; height: 18px; text-align: center; flex: none; display: flex; align-items: center; justify-content: center; opacity: 0.8; transition: opacity 0.15s ease; }
+  .nav-item .icon svg { width: 17px; height: 17px; }
+  .nav-item .label-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .nav-item .count {
-    margin-left: auto; font-variant-numeric: tabular-nums; font-size: 0.72rem;
+    margin-left: auto; font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 0.7rem;
     color: var(--text-muted); background: rgba(255,255,255,0.06);
-    border-radius: 999px; padding: 0.05rem 0.45rem;
+    border-radius: 999px; padding: 0.05rem 0.45rem; flex: none;
     transition: background 0.2s ease, color 0.2s ease;
   }
   .nav-item::before {
@@ -116,26 +172,39 @@
   }
   .nav-item:hover { color: var(--text-primary); background: rgba(255,255,255,0.04); }
   .nav-item:hover::before { left: 0; }
+  .nav-item:hover .icon { opacity: 1; }
   .nav-item.active { color: var(--text-primary); background: rgba(57,135,229,0.12); }
+  .nav-item.active .icon { opacity: 1; color: var(--series-blue); }
   .nav-item.active .count { background: var(--series-blue); color: #fff; }
   .nav-item.alert .count { background: rgba(208,59,59,0.25); color: #ff9d9d; }
   .nav-item.active.alert .count { background: var(--status-critical); color: #fff; }
 
   .sidebar-footer { margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--gridline); }
-  .sidebar-footer .user { font-size: 0.78rem; color: var(--text-secondary); padding: 0 0.5rem 0.6rem; }
+  .user-card { display: flex; align-items: center; gap: 0.6rem; padding: 0.3rem 0.2rem 0.85rem; min-width: 0; }
+  .avatar {
+    flex: none; width: 30px; height: 30px; border-radius: 50%;
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);
+    display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 650;
+  }
+  .user-info { min-width: 0; }
+  .user-name { font-size: 0.82rem; color: var(--text-primary); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .user-role { font-size: 0.68rem; color: var(--text-muted); }
+  .footer-actions { display: flex; flex-direction: column; gap: 0.35rem; }
 
   /* Main content */
   .main { flex: 1; min-width: 0; padding: 1.75rem 2.25rem 3rem; }
 
   .btn {
-    display: inline-flex; align-items: center; gap: 0.4rem;
+    display: inline-flex; align-items: center; gap: 0.55rem;
     background: var(--surface-2); border: 1px solid var(--border);
     color: var(--text-secondary); text-decoration: none;
-    font-size: 0.82rem; padding: 0.5rem 0.85rem; border-radius: 7px;
-    cursor: pointer; width: 100%; margin-bottom: 0.4rem;
+    font-size: 0.82rem; padding: 0.55rem 0.7rem; border-radius: 7px;
+    cursor: pointer; width: 100%;
     transition: border-color 0.15s, color 0.15s, transform 0.15s, background 0.15s;
   }
+  .btn svg { width: 15px; height: 15px; flex: none; opacity: 0.8; }
   .btn:hover { border-color: var(--series-blue); color: var(--text-primary); background: rgba(57,135,229,0.08); transform: translateX(2px); }
+  .btn:hover svg { opacity: 1; }
 
   h1 { font-size: 1.3rem; margin: 0 0 1.5rem; font-weight: 650; letter-spacing: -0.01em; }
 
@@ -308,8 +377,10 @@
 
   @media (max-width: 720px) {
     .shell { flex-direction: column; }
-    .sidebar { width: 100%; height: auto; position: relative; flex-direction: row; overflow-x: auto; padding: 0.75rem; }
-    .brand, .sidebar-footer { display: none; }
+    .sidebar { width: 100%; height: auto; position: relative; flex-direction: row; overflow-x: auto; overflow-y: hidden; padding: 0.75rem; }
+    .sidebar-top, .status-chip, .sidebar-footer, .nav-group-label, .nav-indicator { display: none; }
+    nav { display: flex; }
+    .nav-rail { display: flex; gap: 0.3rem; }
     .nav-item { flex: none; }
     .main { padding: 1.25rem; }
   }
@@ -320,23 +391,78 @@
 <div class="bg-grid"></div>
 <div class="bg-sweep"></div>
 <div class="shell">
-  <aside class="sidebar">
-    <div class="brand">Proyecto Cyber<span>Escáner de vulnerabilidades</span></div>
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-top">
+      <div class="brand">
+        <div class="brand-mark">PC</div>
+        <div class="brand-text"><div class="brand-name">Proyecto Cyber</div><span>Escáner de vulnerabilidades</span></div>
+      </div>
+      <button class="collapse-btn" id="collapse-btn" title="Colapsar panel" aria-label="Colapsar panel">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L8 12 L15 19"/></svg>
+      </button>
+    </div>
+
+    <div class="status-chip"><span class="dot"></span><span class="label-text">Sistema en línea</span></div>
+
     <nav>
-      <a class="nav-item active" data-view="resumen"><span class="icon">◆</span>Resumen</a>
-      <a class="nav-item" data-view="escanear"><span class="icon">⟳</span>Escanear</a>
-      <a class="nav-item" data-view="inventario"><span class="icon">▦</span>Inventario<span class="count">{{ stats.host_count }}</span></a>
-      <a class="nav-item {{ 'alert' if stats.total_vulns else '' }}" data-view="vulnerabilidades"><span class="icon">▲</span>Vulnerabilidades<span class="count">{{ stats.total_vulns }}</span></a>
-      <a class="nav-item {{ 'alert' if stats.attack_paths else '' }}" data-view="ataque"><span class="icon">✕</span>Rutas de ataque<span class="count">{{ stats.attack_paths }}</span></a>
-      <a class="nav-item" data-view="timeline"><span class="icon">↻</span>Timeline</a>
-      {% if is_admin %}
-      <a class="nav-item" data-view="demo"><span class="icon">◐</span>Demo</a>
-      {% endif %}
+      <div class="nav-group-label label-text">Panel</div>
+      <div class="nav-rail">
+        <div class="nav-indicator" id="nav-indicator"></div>
+        <a class="nav-item active" data-view="resumen" title="Resumen">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.2"/><rect x="14" y="3" width="7" height="7" rx="1.2"/><rect x="3" y="14" width="7" height="7" rx="1.2"/><rect x="14" y="14" width="7" height="7" rx="1.2"/></svg></span>
+          <span class="label-text">Resumen</span>
+        </a>
+        <a class="nav-item" data-view="escanear" title="Escanear">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/><path d="M12 12 L17.5 6.5"/></svg></span>
+          <span class="label-text">Escanear</span>
+        </a>
+
+        <div class="nav-group-label label-text">Red</div>
+        <a class="nav-item" data-view="inventario" title="Inventario">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="1.4"/><rect x="3" y="14" width="18" height="6" rx="1.4"/><circle cx="7" cy="7" r="0.9" fill="currentColor" stroke="none"/><circle cx="7" cy="17" r="0.9" fill="currentColor" stroke="none"/></svg></span>
+          <span class="label-text">Inventario</span><span class="count">{{ stats.host_count }}</span>
+        </a>
+        <a class="nav-item {{ 'alert' if stats.total_vulns else '' }}" data-view="vulnerabilidades" title="Vulnerabilidades">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L22 20 H2 Z"/><path d="M12 9.5 v4.5"/><circle cx="12" cy="17" r="0.9" fill="currentColor" stroke="none"/></svg></span>
+          <span class="label-text">Vulnerabilidades</span><span class="count">{{ stats.total_vulns }}</span>
+        </a>
+        <a class="nav-item {{ 'alert' if stats.attack_paths else '' }}" data-view="ataque" title="Rutas de ataque">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L20 6 V12 C20 17 16.5 20.5 12 22 C7.5 20.5 4 17 4 12 V6 Z"/><path d="M9.5 12 L11 13.5 L14.5 10"/></svg></span>
+          <span class="label-text">Rutas de ataque</span><span class="count">{{ stats.attack_paths }}</span>
+        </a>
+        <a class="nav-item" data-view="timeline" title="Timeline">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7 v5 l3.5 2"/></svg></span>
+          <span class="label-text">Timeline</span>
+        </a>
+
+        {% if is_admin %}
+        <div class="nav-group-label label-text">Sistema</div>
+        <a class="nav-item" data-view="demo" title="Demo">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3 h6 M10 3 v6.2 L4.6 18.4 A2 2 0 0 0 6.4 21.4 H17.6 A2 2 0 0 0 19.4 18.4 L14 9.2 V3"/><path d="M6.5 15 h11"/></svg></span>
+          <span class="label-text">Demo</span>
+        </a>
+        {% endif %}
+      </div>
     </nav>
+
     <div class="sidebar-footer">
-      <div class="user">{{ username }}</div>
-      <a class="btn" href="/reports/latest">Descargar PDF</a>
-      <a class="btn" href="#" onclick="fetch('/auth/logout', {method:'POST'}).then(() => location.href='/login')">Cerrar sesión</a>
+      <div class="user-card">
+        <div class="avatar">{{ username[0]|upper }}</div>
+        <div class="user-info label-text">
+          <div class="user-name">{{ username }}</div>
+          <div class="user-role">{{ 'Administrador' if is_admin else 'Visor' }}</div>
+        </div>
+      </div>
+      <div class="footer-actions label-text">
+        <a class="btn" href="/reports/latest" title="Descargar PDF">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 v12 M7 10 l5 5 5-5"/><path d="M4 19 h16"/></svg>
+          <span class="label-text">Descargar PDF</span>
+        </a>
+        <a class="btn" href="#" title="Cerrar sesión" onclick="fetch('/auth/logout', {method:'POST'}).then(() => location.href='/login')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4 H6 a1 1 0 0 0-1 1 v14 a1 1 0 0 0 1 1 h9"/><path d="M10 12 h11 M18 8 l3 4-3 4"/></svg>
+          <span class="label-text">Cerrar sesión</span>
+        </a>
+      </div>
     </div>
   </aside>
 
@@ -571,10 +697,19 @@
   // Sidebar navigation — switch views without a page reload
   const navItems = document.querySelectorAll(".nav-item[data-view]");
   const views = document.querySelectorAll(".view[data-view]");
+  const navIndicator = document.getElementById("nav-indicator");
+  function moveIndicator() {
+    const active = document.querySelector(".nav-item.active");
+    if (!active || !navIndicator) return;
+    navIndicator.style.transform = "translateY(" + active.offsetTop + "px)";
+    navIndicator.style.height = active.offsetHeight + "px";
+    navIndicator.classList.add("ready");
+  }
   function showView(name) {
     views.forEach(v => v.classList.toggle("active", v.dataset.view === name));
     navItems.forEach(n => n.classList.toggle("active", n.dataset.view === name));
     if (history.replaceState) history.replaceState(null, "", "#" + name);
+    moveIndicator();
   }
   navItems.forEach(item => {
     item.addEventListener("click", (e) => {
@@ -585,7 +720,22 @@
   const initial = location.hash.replace("#", "");
   if (initial && document.querySelector('.view[data-view="' + initial + '"]')) {
     showView(initial);
+  } else {
+    moveIndicator();
   }
+  window.addEventListener("resize", moveIndicator);
+
+  // Collapsible sidebar, persisted across visits
+  const sidebar = document.getElementById("sidebar");
+  const collapseBtn = document.getElementById("collapse-btn");
+  if (localStorage.getItem("sidebarCollapsed") === "true") {
+    sidebar.classList.add("collapsed");
+  }
+  collapseBtn.addEventListener("click", () => {
+    sidebar.classList.toggle("collapsed");
+    localStorage.setItem("sidebarCollapsed", sidebar.classList.contains("collapsed"));
+    setTimeout(moveIndicator, 230);
+  });
 
   // Cursor-follow spotlight in the background
   document.addEventListener("mousemove", (e) => {
