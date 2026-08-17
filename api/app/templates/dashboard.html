@@ -343,6 +343,25 @@
   .status-select:hover, .status-select:focus { border-color: var(--series-blue); color: var(--text-primary); outline: none; }
   .status-select:disabled { opacity: 0.5; cursor: wait; }
 
+  /* Politica de escaneo */
+  .policy-panel { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 1.3rem 1.5rem; }
+  .policy-form { display: flex; flex-direction: column; gap: 1.1rem; max-width: 460px; }
+  .policy-toggle { display: flex; align-items: center; gap: 0.55rem; font-size: 0.86rem; color: var(--text-secondary); cursor: pointer; }
+  .policy-toggle input { width: 15px; height: 15px; accent-color: var(--series-blue); cursor: pointer; }
+  .policy-field { display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.82rem; color: var(--text-secondary); }
+  .policy-field input[type="number"], .policy-field select, .policy-field textarea {
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);
+    border-radius: 6px; padding: 0.5rem 0.6rem; font-size: 0.84rem; font-family: inherit;
+    transition: border-color 0.15s ease;
+  }
+  .policy-field input[type="number"] { width: 110px; }
+  .policy-field textarea { resize: vertical; font-family: var(--font-mono); }
+  .policy-field input:focus, .policy-field select:focus, .policy-field textarea:focus { border-color: var(--series-blue); outline: none; }
+  .policy-hours { display: flex; align-items: center; gap: 0.6rem; }
+  .policy-hours select { cursor: pointer; }
+  .policy-hours span { color: var(--text-muted); font-size: 0.8rem; }
+  .policy-note { font-size: 0.78rem; color: var(--status-good); min-height: 1.1rem; }
+
   .exploit-tag {
     display: inline-flex; align-items: center; gap: 0.3rem;
     background: rgba(208,59,59,0.18); color: #ff9d9d;
@@ -669,6 +688,53 @@
             {% endfor %}
           </tbody>
         </table>
+        </div>
+      </section>
+
+      <section>
+        <h2>Política de escaneo</h2>
+        <div class="hud-frame policy-panel">
+          {% if is_admin %}
+          <div class="policy-form">
+            <label class="policy-toggle">
+              <input type="checkbox" id="policy-enabled" {{ 'checked' if scan_policy.enabled else '' }}>
+              Escaneo automático activado
+            </label>
+            <label class="policy-field">
+              Intervalo entre ciclos (minutos)
+              <input type="number" id="policy-interval" min="1" max="1440" value="{{ scan_policy.interval_minutes }}">
+            </label>
+            <label class="policy-field">
+              Horario silencioso (UTC) — sin escaneo automático entre estas horas
+              <div class="policy-hours">
+                <select id="policy-quiet-start">
+                  <option value="">Ninguno</option>
+                  {% for h in range(24) %}<option value="{{ h }}" {{ 'selected' if scan_policy.quiet_hours_start == h else '' }}>{{ "%02d"|format(h) }}:00</option>{% endfor %}
+                </select>
+                <span>a</span>
+                <select id="policy-quiet-end">
+                  <option value="">Ninguno</option>
+                  {% for h in range(24) %}<option value="{{ h }}" {{ 'selected' if scan_policy.quiet_hours_end == h else '' }}>{{ "%02d"|format(h) }}:00</option>{% endfor %}
+                </select>
+              </div>
+            </label>
+            <label class="policy-field">
+              IPs excluidas del escaneo (una por línea — equipos que no son tuyos o que no quieres escanear)
+              <textarea id="policy-excluded" rows="3" placeholder="192.168.0.10">{{ scan_policy.excluded_ips | join('\n') }}</textarea>
+            </label>
+            <button type="button" class="scan-btn" onclick="savePolicy()">
+              <span class="spinner"></span>
+              <span id="policy-save-label">Guardar política</span>
+            </button>
+            <div id="policy-saved-note" class="policy-note"></div>
+          </div>
+          {% else %}
+          <p class="empty-state">
+            Escaneo automático: {{ 'activado' if scan_policy.enabled else 'desactivado' }} · cada {{ scan_policy.interval_minutes }} min
+            {% if scan_policy.excluded_ips %} · {{ scan_policy.excluded_ips|length }} IP(s) excluida(s){% endif %}
+            {% if scan_policy.quiet_hours_start is not none and scan_policy.quiet_hours_end is not none %} · silencio {{ "%02d"|format(scan_policy.quiet_hours_start) }}:00–{{ "%02d"|format(scan_policy.quiet_hours_end) }}:00 UTC{% endif %}
+          </p>
+          {% endif %}
         </div>
       </section>
     </div>
@@ -1084,6 +1150,43 @@
     });
   }
 
+  // --- Politica de escaneo ---
+  async function savePolicy() {
+    const btn = document.querySelector("#policy-save-label").closest("button");
+    const label = document.getElementById("policy-save-label");
+    const note = document.getElementById("policy-saved-note");
+    const enabled = document.getElementById("policy-enabled").checked;
+    const intervalMinutes = parseInt(document.getElementById("policy-interval").value, 10) || 5;
+    const excludedIps = document.getElementById("policy-excluded").value
+      .split("\n").map((s) => s.trim()).filter(Boolean);
+    const qStart = document.getElementById("policy-quiet-start").value;
+    const qEnd = document.getElementById("policy-quiet-end").value;
+
+    btn.disabled = true; btn.classList.add("loading"); label.textContent = "Guardando...";
+    note.textContent = "";
+    try {
+      const resp = await fetch("/scan/policy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled: enabled,
+          interval_seconds: intervalMinutes * 60,
+          excluded_ips: excludedIps,
+          quiet_hours_start: qStart === "" ? null : parseInt(qStart, 10),
+          quiet_hours_end: qEnd === "" ? null : parseInt(qEnd, 10),
+        }),
+      });
+      if (!resp.ok) throw new Error("failed");
+      label.textContent = "Guardar política";
+      note.textContent = "Política guardada — se aplicará en el próximo ciclo del escáner.";
+    } catch (err) {
+      label.textContent = "Error, reintenta";
+      note.textContent = "";
+    } finally {
+      btn.disabled = false; btn.classList.remove("loading");
+    }
+  }
+
   // --- Escaneo manual ---
   let scanPolling = null;
 
@@ -1097,6 +1200,12 @@
       const resp = await fetch("/scan/request", { method: "POST" });
       if (resp.status === 401) {
         window.location.href = "/login";
+        return;
+      }
+      if (resp.status === 409) {
+        label.textContent = "Escaneo desactivado por política";
+        btn.disabled = false;
+        btn.classList.remove("loading");
         return;
       }
       if (!resp.ok) throw new Error("failed");

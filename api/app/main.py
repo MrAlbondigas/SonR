@@ -162,6 +162,66 @@ def get_host(host_id: int, db: Session = Depends(get_db)):
     }
 
 
+# --- Politica de escaneo ---
+
+
+def get_or_create_policy(db: Session) -> models.ScanPolicy:
+    policy = db.query(models.ScanPolicy).filter(models.ScanPolicy.id == 1).first()
+    if policy is None:
+        policy = models.ScanPolicy(id=1)
+        db.add(policy)
+        db.commit()
+        db.refresh(policy)
+    return policy
+
+
+def policy_to_dict(policy: models.ScanPolicy) -> dict:
+    return {
+        "enabled": policy.enabled,
+        "interval_seconds": policy.interval_seconds,
+        "excluded_ips": [ip for ip in policy.excluded_ips.split(",") if ip],
+        "quiet_hours_start": policy.quiet_hours_start,
+        "quiet_hours_end": policy.quiet_hours_end,
+        "updated_at": policy.updated_at,
+        "updated_by": policy.updated_by,
+    }
+
+
+@app.get("/scan/policy")
+def get_scan_policy(db: Session = Depends(get_db)):
+    return policy_to_dict(get_or_create_policy(db))
+
+
+@app.post("/scan/policy")
+def set_scan_policy(
+    payload: schemas.ScanPolicyUpdate,
+    db: Session = Depends(get_db),
+    admin: models.User = Depends(auth.require_admin),
+):
+    if not (60 <= payload.interval_seconds <= 86400):
+        raise HTTPException(status_code=400, detail="El intervalo debe estar entre 60 y 86400 segundos")
+    for hour in (payload.quiet_hours_start, payload.quiet_hours_end):
+        if hour is not None and not (0 <= hour <= 23):
+            raise HTTPException(status_code=400, detail="Las horas deben estar entre 0 y 23")
+
+    policy = get_or_create_policy(db)
+    policy.enabled = payload.enabled
+    policy.interval_seconds = payload.interval_seconds
+    clean_ips = sorted({ip.strip() for ip in payload.excluded_ips if ip.strip()})
+    policy.excluded_ips = ",".join(clean_ips)
+    policy.quiet_hours_start = payload.quiet_hours_start
+    policy.quiet_hours_end = payload.quiet_hours_end
+    policy.updated_at = func.now()
+    policy.updated_by = admin.username
+    db.commit()
+    return {"ok": True, **policy_to_dict(policy)}
+
+
+@app.get("/scan/config", dependencies=[Depends(verify_scanner_key)])
+def get_scan_config(db: Session = Depends(get_db)):
+    return policy_to_dict(get_or_create_policy(db))
+
+
 # --- Escaneo bajo demanda ---
 
 
@@ -169,6 +229,11 @@ def get_host(host_id: int, db: Session = Depends(get_db)):
 def request_scan(
     db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)
 ):
+    policy = get_or_create_policy(db)
+    if not policy.enabled:
+        raise HTTPException(
+            status_code=409, detail="El escaneo esta desactivado por politica del administrador"
+        )
     pending_exists = (
         db.query(models.ScanRequest).filter(models.ScanRequest.consumed_at.is_(None)).first()
     )
@@ -235,7 +300,11 @@ def ingest_scan(payload: schemas.ScanIngest, db: Session = Depends(get_db)):
     db.add(scan)
     db.flush()
 
+    excluded_ips = set(policy_to_dict(get_or_create_policy(db))["excluded_ips"])
+
     for host_in in payload.hosts:
+        if host_in.ip in excluded_ips:
+            continue
         host = db.query(models.Host).filter(models.Host.ip == host_in.ip).first()
         is_new_host = host is None
         if is_new_host:
@@ -981,6 +1050,8 @@ def dashboard(
     )
     demo_active = db.query(models.DemoRecord).first() is not None
     recent_alerts = db.query(models.Alert).order_by(models.Alert.id.desc()).limit(10).all()
+    scan_policy = policy_to_dict(get_or_create_policy(db))
+    scan_policy["interval_minutes"] = max(1, scan_policy["interval_seconds"] // 60)
 
     # --- Riesgo y tendencia ---
     host_risks = sorted((compute_host_risk(h) for h in hosts), key=lambda r: r["score"], reverse=True)
@@ -1106,6 +1177,7 @@ def dashboard(
             "aging_count": aging_count,
             "avg_remediation_days": avg_remediation_days,
             "vuln_status_labels": VULN_STATUS_LABELS,
+            "scan_policy": scan_policy,
         },
     )
 

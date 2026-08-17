@@ -106,6 +106,17 @@ CREATE TABLE scan_requests (
     consumed_at TIMESTAMPTZ
 );
 
+CREATE TABLE scan_policy (
+    id SERIAL PRIMARY KEY,
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    interval_seconds INTEGER NOT NULL DEFAULT 300,
+    excluded_ips TEXT NOT NULL DEFAULT '',
+    quiet_hours_start INTEGER,
+    quiet_hours_end INTEGER,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_by TEXT
+);
+
 CREATE INDEX idx_software_host ON software(host_id);
 CREATE INDEX idx_vuln_software ON vulnerabilities(software_id);
 CREATE INDEX idx_events_occurred ON events(occurred_at DESC);

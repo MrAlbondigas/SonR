@@ -21,10 +21,11 @@ def local_subnet() -> str | None:
     return None
 
 
-def discover_hosts(subnet: str) -> list[str]:
-    xml_out = subprocess.run(
-        ["nmap", "-sn", subnet, "-oX", "-"], capture_output=True, text=True
-    ).stdout
+def discover_hosts(subnet: str, excluded_ips: set[str] | None = None) -> list[str]:
+    cmd = ["nmap", "-sn", subnet, "-oX", "-"]
+    if excluded_ips:
+        cmd += ["--exclude", ",".join(sorted(excluded_ips))]
+    xml_out = subprocess.run(cmd, capture_output=True, text=True).stdout
     root = ET.fromstring(xml_out)
     ips = []
     for host in root.findall("host"):
@@ -83,14 +84,15 @@ def scan_host(ip: str) -> dict:
     }
 
 
-def run_scan_cycle():
+def run_scan_cycle(excluded_ips: set[str] | None = None):
     subnet = local_subnet()
     if not subnet:
         print("No se pudo determinar la subred local, saltando ciclo")
         return
 
-    print(f"Escaneando subred {subnet}...")
-    live_ips = discover_hosts(subnet)
+    excluded_ips = excluded_ips or set()
+    print(f"Escaneando subred {subnet}..." + (f" (excluyendo {len(excluded_ips)} IP(s))" if excluded_ips else ""))
+    live_ips = [ip for ip in discover_hosts(subnet, excluded_ips) if ip not in excluded_ips]
     print(f"{len(live_ips)} hosts activos encontrados")
 
     hosts_payload = [scan_host(ip) for ip in live_ips]
@@ -114,11 +116,37 @@ def check_manual_trigger() -> bool:
         return False
 
 
-def wait_for_next_cycle():
+def fetch_policy() -> dict:
+    default = {
+        "enabled": True,
+        "interval_seconds": SCAN_INTERVAL_SECONDS,
+        "excluded_ips": [],
+        "quiet_hours_start": None,
+        "quiet_hours_end": None,
+    }
+    try:
+        resp = requests.get(f"{API_URL}/scan/config", headers={"X-API-Key": API_KEY}, timeout=10)
+        resp.raise_for_status()
+        return {**default, **resp.json()}
+    except Exception:
+        return default
+
+
+def in_quiet_hours(policy: dict) -> bool:
+    start, end = policy.get("quiet_hours_start"), policy.get("quiet_hours_end")
+    if start is None or end is None or start == end:
+        return False
+    hour = time.gmtime().tm_hour
+    if start < end:
+        return start <= hour < end
+    return hour >= start or hour < end
+
+
+def wait_for_next_cycle(interval_seconds: int):
     """Duerme hasta el siguiente ciclo, pero revisa cada 5s si hay un escaneo manual pedido."""
     elapsed = 0
     check_every = 5
-    while elapsed < SCAN_INTERVAL_SECONDS:
+    while elapsed < interval_seconds:
         time.sleep(check_every)
         elapsed += check_every
         if check_manual_trigger():
@@ -128,8 +156,17 @@ def wait_for_next_cycle():
 
 if __name__ == "__main__":
     while True:
-        try:
-            run_scan_cycle()
-        except Exception as exc:
-            print(f"Error en ciclo de escaneo: {exc}")
-        wait_for_next_cycle()
+        policy = fetch_policy()
+        if not policy.get("enabled", True):
+            print("Escaneo automatico desactivado por politica, esperando...")
+        elif in_quiet_hours(policy):
+            print(
+                f"Dentro de horario silencioso ({policy['quiet_hours_start']}h-{policy['quiet_hours_end']}h UTC), "
+                "saltando ciclo automatico"
+            )
+        else:
+            try:
+                run_scan_cycle(set(policy.get("excluded_ips", [])))
+            except Exception as exc:
+                print(f"Error en ciclo de escaneo: {exc}")
+        wait_for_next_cycle(policy.get("interval_seconds", SCAN_INTERVAL_SECONDS))

@@ -86,6 +86,19 @@ class RiskSnapshot(Base):
     total_score = Column(Integer, nullable=False)
 
 
+class ScanPolicy(Base):
+    __tablename__ = "scan_policy"
+
+    id = Column(Integer, primary_key=True)
+    enabled = Column(Boolean, nullable=False, default=True)
+    interval_seconds = Column(Integer, nullable=False, default=300)
+    excluded_ips = Column(Text, nullable=False, default="")
+    quiet_hours_start = Column(Integer)
+    quiet_hours_end = Column(Integer)
+    updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    updated_by = Column(Text)
+
+
 class Software(Base):
     __tablename__ = "software"
 
