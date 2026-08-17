@@ -1,3 +1,4 @@
+import math
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -951,6 +952,42 @@ def dashboard(
     )
     new_hosts_7d = db.query(models.Host).filter(models.Host.first_seen >= week_ago).count()
 
+    # --- Topologia de red ---
+    topo_w, topo_h = 640, 420
+    topo_cx, topo_cy = topo_w / 2, topo_h / 2
+    topo_radius = min(topo_w, topo_h) / 2 - 70
+    topo_nodes = []
+    n = len(hosts)
+    for i, h in enumerate(hosts):
+        angle = (2 * math.pi * i / n) - (math.pi / 2) if n else 0
+        risk = host_risk_by_id[h.id]
+        topo_nodes.append(
+            {
+                "id": h.id,
+                "ip": h.ip,
+                "label": h.ip.rsplit(".", 1)[-1],
+                "hostname": h.hostname,
+                "x": round(topo_cx + topo_radius * math.cos(angle), 1),
+                "y": round(topo_cy + topo_radius * math.sin(angle), 1),
+                "score": risk["score"],
+                "level_label": risk["level_label"],
+                "level_color": risk["level_color"],
+                "software_count": len(h.software),
+            }
+        )
+    attack_path_host_ids = {p["host_id"] for p in attack_paths}
+    topo_lateral_edges = []
+    if attack_path_host_ids and n <= 15:
+        for node in topo_nodes:
+            if node["id"] not in attack_path_host_ids:
+                continue
+            for other in topo_nodes:
+                if other["id"] == node["id"]:
+                    continue
+                topo_lateral_edges.append(
+                    {"x1": node["x"], "y1": node["y"], "x2": other["x"], "y2": other["y"]}
+                )
+
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -987,6 +1024,13 @@ def dashboard(
             "new_vulns_7d": new_vulns_7d,
             "resolved_vulns_7d": resolved_vulns_7d,
             "new_hosts_7d": new_hosts_7d,
+            "topo_w": topo_w,
+            "topo_h": topo_h,
+            "topo_cx": topo_cx,
+            "topo_cy": topo_cy,
+            "topo_nodes": topo_nodes,
+            "topo_lateral_edges": topo_lateral_edges,
+            "attack_path_host_ids": attack_path_host_ids,
         },
     )
 
