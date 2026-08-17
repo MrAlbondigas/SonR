@@ -18,6 +18,34 @@ templates = Jinja2Templates(directory="app/templates")
 
 SCANNER_API_KEY = os.environ["SCANNER_API_KEY"]
 REPORTS_DIR = "/app/reports"
+ALERT_WEBHOOK_URL = os.environ.get("ALERT_WEBHOOK_URL", "").strip()
+
+
+def send_webhook_alert(
+    db: Session, message: str, vulnerability_id: int | None = None, host_id: int | None = None
+) -> bool:
+    success = False
+    if ALERT_WEBHOOK_URL:
+        try:
+            resp = requests.post(
+                ALERT_WEBHOOK_URL,
+                json={"content": message, "text": message},
+                timeout=6,
+            )
+            success = resp.status_code < 300
+        except requests.RequestException:
+            success = False
+    db.add(
+        models.Alert(
+            vulnerability_id=vulnerability_id,
+            host_id=host_id,
+            channel="webhook",
+            description=message,
+            success=success,
+        )
+    )
+    db.commit()
+    return success
 
 
 def lookup_vendor(mac: str) -> str | None:
@@ -347,6 +375,7 @@ def ingest_vulnerabilities(payload: schemas.VulnerabilityIngest, db: Session = D
     existing_by_cve = {v.cve_id: v for v in software.vulnerabilities}
     new_count = 0
     reopened_count = 0
+    pending_alerts = []
     for vuln_in in payload.vulnerabilities:
         existing = existing_by_cve.get(vuln_in.cve_id)
         if existing is not None:
@@ -364,7 +393,8 @@ def ingest_vulnerabilities(payload: schemas.VulnerabilityIngest, db: Session = D
                     )
                 )
             continue
-        db.add(models.Vulnerability(software_id=software.id, **vuln_in.model_dump()))
+        new_vuln = models.Vulnerability(software_id=software.id, **vuln_in.model_dump())
+        db.add(new_vuln)
         new_count += 1
         if vuln_in.known_exploited:
             db.add(
@@ -376,10 +406,19 @@ def ingest_vulnerabilities(payload: schemas.VulnerabilityIngest, db: Session = D
                     ),
                 )
             )
+            pending_alerts.append(
+                (
+                    new_vuln,
+                    f"🚨 Vulnerabilidad critica con exploit publico conocido en "
+                    f"{software.host.ip} ({software.name}): {vuln_in.cve_id}",
+                )
+            )
     software.cve_checked_at = datetime.now(timezone.utc)
     db.commit()
     if new_count or reopened_count:
         record_risk_snapshot(db)
+    for vuln_obj, message in pending_alerts:
+        send_webhook_alert(db, message, vulnerability_id=vuln_obj.id, host_id=software.host_id)
     return {"software_id": software.id, "new_vulnerabilities": new_count, "reopened": reopened_count}
 
 
@@ -428,7 +467,49 @@ def ingest_credential(payload: schemas.CredentialFindingIn, db: Session = Depend
         )
         db.commit()
         record_risk_snapshot(db)
+        send_webhook_alert(
+            db,
+            f"🔑 Credenciales por defecto validas en {host.ip if host else payload.host_id} "
+            f"puerto {payload.port} ({payload.service}): {payload.username}/{payload.password}",
+            host_id=payload.host_id,
+        )
     return {"ok": True}
+
+
+# --- Alertas (webhook saliente) ---
+
+
+@app.get("/webhook/status")
+def webhook_status(db: Session = Depends(get_db)):
+    last = db.query(models.Alert).order_by(models.Alert.id.desc()).first()
+    return {
+        "configured": bool(ALERT_WEBHOOK_URL),
+        "last_sent_at": last.sent_at if last else None,
+        "last_success": last.success if last else None,
+    }
+
+
+@app.post("/webhook/test")
+def webhook_test(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
+    success = send_webhook_alert(
+        db, f"✅ Prueba de webhook desde Proyecto Cyber, enviada por {admin.username}."
+    )
+    return {"ok": True, "configured": bool(ALERT_WEBHOOK_URL), "delivered": success}
+
+
+@app.get("/alerts")
+def list_alerts(db: Session = Depends(get_db)):
+    alerts = db.query(models.Alert).order_by(models.Alert.id.desc()).limit(20).all()
+    return [
+        {
+            "id": a.id,
+            "description": a.description,
+            "channel": a.channel,
+            "success": a.success,
+            "sent_at": a.sent_at,
+        }
+        for a in alerts
+    ]
 
 
 # --- Timeline y priorizacion ---
@@ -828,6 +909,7 @@ def dashboard(
         db.query(models.ScanRequest).filter(models.ScanRequest.consumed_at.is_(None)).first()
     )
     demo_active = db.query(models.DemoRecord).first() is not None
+    recent_alerts = db.query(models.Alert).order_by(models.Alert.id.desc()).limit(10).all()
 
     # --- Riesgo y tendencia ---
     host_risks = sorted((compute_host_risk(h) for h in hosts), key=lambda r: r["score"], reverse=True)
@@ -885,6 +967,8 @@ def dashboard(
             "recent_scans": recent_scans,
             "pending_scan_request": pending_scan_request is not None,
             "demo_active": demo_active,
+            "webhook_configured": bool(ALERT_WEBHOOK_URL),
+            "recent_alerts": recent_alerts,
             "is_authenticated": current_user is not None,
             "is_admin": current_user is not None and current_user.role == "admin",
             "username": current_user.username if current_user else None,

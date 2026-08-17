@@ -60,6 +60,18 @@ class ScanRequest(Base):
     consumed_at = Column(TIMESTAMP(timezone=True))
 
 
+class Alert(Base):
+    __tablename__ = "alerts"
+
+    id = Column(Integer, primary_key=True)
+    vulnerability_id = Column(Integer, ForeignKey("vulnerabilities.id", ondelete="CASCADE"))
+    host_id = Column(Integer, ForeignKey("hosts.id", ondelete="CASCADE"))
+    channel = Column(Text, nullable=False, default="webhook")
+    description = Column(Text)
+    success = Column(Boolean, nullable=False, default=False)
+    sent_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+
 class RiskSnapshot(Base):
     __tablename__ = "risk_snapshots"
 

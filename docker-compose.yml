@@ -27,6 +27,7 @@ services:
       SCANNER_API_KEY: ${SCANNER_API_KEY}
       ADMIN_USERNAME: ${ADMIN_USERNAME}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
     ports:
       - "8000:8000"
     volumes:

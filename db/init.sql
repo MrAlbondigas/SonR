@@ -65,8 +65,11 @@ CREATE TABLE risk_snapshots (
 CREATE TABLE alerts (
     id SERIAL PRIMARY KEY,
     vulnerability_id INTEGER REFERENCES vulnerabilities(id) ON DELETE CASCADE,
-    sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    channel TEXT
+    host_id INTEGER REFERENCES hosts(id) ON DELETE CASCADE,
+    channel TEXT NOT NULL DEFAULT 'webhook',
+    description TEXT,
+    success BOOLEAN NOT NULL DEFAULT false,
+    sent_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE events (

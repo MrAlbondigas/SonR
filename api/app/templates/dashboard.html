@@ -178,6 +178,8 @@
   .nav-item.active .count { background: var(--series-blue); color: #fff; }
   .nav-item.alert .count { background: rgba(208,59,59,0.25); color: #ff9d9d; }
   .nav-item.active.alert .count { background: var(--status-critical); color: #fff; }
+  .nav-item .dot-indicator { margin-left: auto; width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); opacity: 0.5; flex: none; }
+  .nav-item .dot-indicator.ok { background: var(--status-good); opacity: 1; box-shadow: 0 0 5px var(--status-good); }
 
   .sidebar-footer { margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--gridline); }
   .user-card { display: flex; align-items: center; gap: 0.6rem; padding: 0.3rem 0.2rem 0.85rem; min-width: 0; }
@@ -378,6 +380,7 @@
   .scan-status-text { font-size: 0.86rem; color: var(--text-secondary); }
   .scan-status-text .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 0.4rem; background: var(--status-good); vertical-align: middle; }
   .scan-status-text.running .dot { background: var(--status-warning); animation: pulse 1.2s ease-in-out infinite; }
+  .scan-status-text.inactive .dot { background: var(--text-muted); }
   @keyframes pulse { 0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(250,178,25,0.5); } 50% { opacity: 0.6; box-shadow: 0 0 0 5px rgba(250,178,25,0); } }
   .scan-btn {
     display: inline-flex; align-items: center; gap: 0.5rem;
@@ -463,6 +466,11 @@
 
         {% if is_admin %}
         <div class="nav-group-label label-text">Sistema</div>
+        <a class="nav-item" data-view="alertas" title="Alertas">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 C8 3 6 6 6 10 V13 L4 17 H20 L18 13 V10 C18 6 16 3 12 3 Z"/><path d="M9.5 20 a2.5 2.5 0 0 0 5 0"/></svg></span>
+          <span class="label-text">Alertas</span>
+          <span class="dot-indicator {{ 'ok' if webhook_configured else '' }}"></span>
+        </a>
         <a class="nav-item" data-view="demo" title="Demo">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3 h6 M10 3 v6.2 L4.6 18.4 A2 2 0 0 0 6.4 21.4 H17.6 A2 2 0 0 0 19.4 18.4 L14 9.2 V3"/><path d="M6.5 15 h11"/></svg></span>
           <span class="label-text">Demo</span>
@@ -622,6 +630,49 @@
     </div>
 
     {% if is_admin %}
+    <!-- Alertas -->
+    <div class="view" data-view="alertas">
+      <h1>Alertas (webhook saliente)</h1>
+      <section>
+        <div class="scan-panel hud-frame">
+          <div class="scan-status-text {{ '' if webhook_configured else 'inactive' }}">
+            <span class="dot"></span>
+            {% if webhook_configured %}
+              Webhook configurado — las vulnerabilidades críticas y credenciales por defecto se notifican automáticamente
+            {% else %}
+              Sin webhook configurado — define <code>ALERT_WEBHOOK_URL</code> (Discord/Slack) en el <code>.env</code> para activar las notificaciones salientes
+            {% endif %}
+          </div>
+          <button id="webhook-test-btn" class="scan-btn" onclick="webhookTest()">
+            <span class="spinner"></span>
+            <span id="webhook-test-label">Enviar alerta de prueba</span>
+          </button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Historial de notificaciones</h2>
+        <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Fecha</th><th>Descripción</th><th>Estado</th></tr>
+          </thead>
+          <tbody id="alerts-body">
+            {% for a in recent_alerts %}
+            <tr>
+              <td class="num muted">{{ a.sent_at }}</td>
+              <td>{{ a.description }}</td>
+              <td><span class="badge {{ 'count' if a.success else 'sev-medium' }}">{{ 'Entregada' if a.success else 'No entregada' }}</span></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="muted">Todavía no se han generado alertas.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </section>
+    </div>
+
     <!-- Demo -->
     <div class="view" data-view="demo">
       <h1>Modo demo</h1>
@@ -942,6 +993,23 @@
   {% if pending_scan_request or (latest_scan and latest_scan.status == 'running') %}
   startScanPolling();
   {% endif %}
+
+  // --- Alertas (webhook) ---
+  async function webhookTest() {
+    const btn = document.getElementById("webhook-test-btn");
+    const label = document.getElementById("webhook-test-label");
+    btn.disabled = true; btn.classList.add("loading"); label.textContent = "Enviando...";
+    try {
+      const resp = await fetch("/webhook/test", { method: "POST" });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error("failed");
+      label.textContent = data.delivered ? "Enviada" : (data.configured ? "Fallo el envio" : "Sin webhook configurado");
+      location.reload();
+    } catch (err) {
+      label.textContent = "Error, reintenta";
+      btn.disabled = false; btn.classList.remove("loading");
+    }
+  }
 
   // --- Modo demo ---
   async function demoSeed() {
