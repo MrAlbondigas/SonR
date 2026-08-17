@@ -118,6 +118,7 @@ class Vulnerability(Base):
     known_exploited = Column(Boolean, nullable=False, default=False)
     detected_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     resolved_at = Column(TIMESTAMP(timezone=True))
+    status = Column(Text, nullable=False, default="abierta")
 
     software = relationship("Software", back_populates="vulnerabilities")
 

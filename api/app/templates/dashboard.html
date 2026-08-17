@@ -335,6 +335,14 @@
   .badge.sev-medium   { background: rgba(250,178,25,0.18); color: var(--status-warning); }
   .badge.sev-low      { background: rgba(107,106,102,0.20); color: var(--text-secondary); }
 
+  .status-select {
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);
+    font-size: 0.78rem; padding: 0.3rem 0.5rem; border-radius: 6px; cursor: pointer;
+    font-family: inherit; transition: border-color 0.15s ease, color 0.15s ease;
+  }
+  .status-select:hover, .status-select:focus { border-color: var(--series-blue); color: var(--text-primary); outline: none; }
+  .status-select:disabled { opacity: 0.5; cursor: wait; }
+
   .exploit-tag {
     display: inline-flex; align-items: center; gap: 0.3rem;
     background: rgba(208,59,59,0.18); color: #ff9d9d;
@@ -476,6 +484,10 @@
         <a class="nav-item {{ 'alert' if stats.total_vulns else '' }}" data-view="vulnerabilidades" title="Vulnerabilidades">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L22 20 H2 Z"/><path d="M12 9.5 v4.5"/><circle cx="12" cy="17" r="0.9" fill="currentColor" stroke="none"/></svg></span>
           <span class="label-text">Vulnerabilidades</span><span class="count">{{ stats.total_vulns }}</span>
+        </a>
+        <a class="nav-item {{ 'alert' if aging_count else '' }}" data-view="remediacion" title="Remediación">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11 l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg></span>
+          <span class="label-text">Remediación</span><span class="count">{{ aging_count }}</span>
         </a>
         <a class="nav-item {{ 'alert' if stats.attack_paths else '' }}" data-view="ataque" title="Rutas de ataque">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L20 6 V12 C20 17 16.5 20.5 12 22 C7.5 20.5 4 17 4 12 V6 Z"/><path d="M9.5 12 L11 13.5 L14.5 10"/></svg></span>
@@ -790,6 +802,68 @@
       </section>
     </div>
 
+    <!-- Remediación -->
+    <div class="view" data-view="remediacion">
+      <h1>Flujo de remediación</h1>
+      <section>
+        <div class="stat-row">
+          <div class="stat-tile" style="--tile-accent: {{ 'var(--status-critical)' if aging_count else 'var(--status-good)' }};">
+            <div class="value">{{ aging_count }}</div>
+            <div class="label">Abiertas hace más de 14 días</div>
+          </div>
+          <div class="stat-tile" style="--tile-accent: var(--series-blue);">
+            <div class="value">{{ avg_remediation_days if avg_remediation_days is not none else "—" }}</div>
+            <div class="label">Días medios hasta resolución</div>
+          </div>
+          <div class="stat-tile" style="--tile-accent: var(--status-warning);">
+            <div class="value">{{ remediation_status_counts.en_progreso }}</div>
+            <div class="label">En progreso</div>
+          </div>
+          <div class="stat-tile" style="--tile-accent: var(--status-good);">
+            <div class="value">{{ remediation_status_counts.reconocida }}</div>
+            <div class="label">Reconocidas</div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Vulnerabilidades abiertas</h2>
+        <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>CVE</th><th>Software</th><th>Equipo</th><th>CVSS</th><th>Severidad</th><th>Detectada</th><th>Estado</th></tr>
+          </thead>
+          <tbody>
+            {% set sev_labels = {'critical': 'Crítica', 'high': 'Alta', 'medium': 'Media', 'low': 'Baja'} %}
+            {% for v in open_vulns_sorted %}
+            <tr>
+              <td>{{ v.cve_id }}{% if v.known_exploited %}<span class="exploit-tag">EXPLOIT CONOCIDO</span>{% endif %}</td>
+              <td>{{ v.software.name }}</td>
+              <td>{{ v.software.host.ip }}</td>
+              <td class="num">{{ v.cvss or "—" }}</td>
+              <td>{% if v.severity %}<span class="badge sev-{{ v.severity }}">{{ sev_labels.get(v.severity, v.severity) }}</span>{% else %}—{% endif %}</td>
+              <td class="muted num">{{ v.detected_at }}</td>
+              <td>
+                {% if is_admin %}
+                <select class="status-select" data-vuln-id="{{ v.id }}" onchange="updateVulnStatus(this)">
+                  {% for key, label in vuln_status_labels.items() %}
+                  <option value="{{ key }}" {{ 'selected' if v.status == key else '' }}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+                {% else %}
+                <span class="badge count">{{ vuln_status_labels.get(v.status, v.status) }}</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="muted">No hay vulnerabilidades abiertas ahora mismo.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </section>
+    </div>
+
     <!-- Rutas de ataque -->
     <div class="view" data-view="ataque">
       <h1>Rutas de ataque</h1>
@@ -1090,6 +1164,26 @@
   {% if pending_scan_request or (latest_scan and latest_scan.status == 'running') %}
   startScanPolling();
   {% endif %}
+
+  // --- Flujo de remediacion ---
+  async function updateVulnStatus(selectEl) {
+    const vulnId = selectEl.dataset.vulnId;
+    const status = selectEl.value;
+    selectEl.disabled = true;
+    try {
+      const resp = await fetch("/vulnerabilities/" + vulnId + "/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: status }),
+      });
+      if (!resp.ok) throw new Error("failed");
+      location.hash = "remediacion";
+      location.reload();
+    } catch (err) {
+      selectEl.disabled = false;
+      alert("No se pudo actualizar el estado. Intenta de nuevo.");
+    }
+  }
 
   // --- Alertas (webhook) ---
   async function webhookTest() {

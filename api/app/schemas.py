@@ -44,3 +44,7 @@ class CredentialFindingIn(BaseModel):
     service: str
     username: str
     password: str
+
+
+class VulnStatusUpdate(BaseModel):
+    status: str

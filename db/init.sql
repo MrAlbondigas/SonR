@@ -47,7 +47,8 @@ CREATE TABLE vulnerabilities (
     remediation TEXT,
     known_exploited BOOLEAN NOT NULL DEFAULT false,
     detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    resolved_at TIMESTAMPTZ
+    resolved_at TIMESTAMPTZ,
+    status TEXT NOT NULL DEFAULT 'abierta'
 );
 
 CREATE TABLE risk_snapshots (

@@ -300,6 +300,7 @@ def ingest_scan(payload: schemas.ScanIngest, db: Session = Depends(get_db)):
                     resolved_count = 0
                     for v in open_vulns(existing):
                         v.resolved_at = func.now()
+                        v.status = "resuelta"
                         resolved_count += 1
                     db.add(
                         models.Event(
@@ -330,6 +331,7 @@ def ingest_scan(payload: schemas.ScanIngest, db: Session = Depends(get_db)):
                 resolved_count = 0
                 for v in open_vulns(sw):
                     v.resolved_at = func.now()
+                    v.status = "resuelta"
                     resolved_count += 1
                 db.add(
                     models.Event(
@@ -382,6 +384,7 @@ def ingest_vulnerabilities(payload: schemas.VulnerabilityIngest, db: Session = D
         if existing is not None:
             if existing.resolved_at is not None:
                 existing.resolved_at = None
+                existing.status = "abierta"
                 reopened_count += 1
                 db.add(
                     models.Event(
@@ -555,9 +558,52 @@ def list_priorities(db: Session = Depends(get_db)):
     ]
 
 
+@app.post("/vulnerabilities/{vuln_id}/status")
+def update_vulnerability_status(
+    vuln_id: int,
+    payload: schemas.VulnStatusUpdate,
+    db: Session = Depends(get_db),
+    admin: models.User = Depends(auth.require_admin),
+):
+    vuln = db.query(models.Vulnerability).filter(models.Vulnerability.id == vuln_id).first()
+    if not vuln:
+        raise HTTPException(status_code=404, detail="Vulnerability not found")
+    if payload.status not in VULN_STATUS_LABELS:
+        raise HTTPException(status_code=400, detail="Invalid status")
+
+    vuln.status = payload.status
+    if payload.status in VULN_CLOSED_STATUSES:
+        if vuln.resolved_at is None:
+            vuln.resolved_at = func.now()
+    else:
+        vuln.resolved_at = None
+
+    db.add(
+        models.Event(
+            host_id=vuln.software.host_id,
+            event_type="vuln_status_change",
+            description=(
+                f"{vuln.cve_id or vuln.software.name} en {vuln.software.host.ip} marcado como "
+                f"'{VULN_STATUS_LABELS[payload.status]}' por {admin.username}"
+            ),
+        )
+    )
+    db.commit()
+    record_risk_snapshot(db)
+    return {"ok": True, "status": vuln.status}
+
+
 SEVERITY_WEIGHTS = {"critical": 10, "high": 6, "medium": 3, "low": 1}
 KEV_BONUS = 8
 CREDENTIAL_BONUS = 12
+VULN_STATUS_LABELS = {
+    "abierta": "Abierta",
+    "reconocida": "Reconocida",
+    "en_progreso": "En progreso",
+    "resuelta": "Resuelta",
+    "ignorada": "Ignorada (riesgo aceptado)",
+}
+VULN_CLOSED_STATUSES = {"resuelta", "ignorada"}
 RISK_LEVELS = [
     (18, "critico", "Crítico", "var(--status-critical)"),
     (8, "alto", "Alto", "var(--status-serious)"),
@@ -896,6 +942,30 @@ def dashboard(
         1 for v in all_vulns if v.known_exploited or (v.cvss or 0) >= 9.0
     )
 
+    # --- Flujo de remediacion ---
+    open_vulns_sorted = sorted(
+        all_vulns, key=lambda v: (0 if v.known_exploited else 1, -(v.cvss or 0))
+    )
+    remediation_status_counts = {"abierta": 0, "reconocida": 0, "en_progreso": 0}
+    aging_cutoff = datetime.now(timezone.utc) - timedelta(days=14)
+    aging_count = 0
+    for v in all_vulns:
+        remediation_status_counts[v.status] = remediation_status_counts.get(v.status, 0) + 1
+        if v.detected_at and v.detected_at < aging_cutoff:
+            aging_count += 1
+    resolved_vulns_all = (
+        db.query(models.Vulnerability).filter(models.Vulnerability.resolved_at.isnot(None)).all()
+    )
+    if resolved_vulns_all:
+        avg_remediation_days = round(
+            sum((v.resolved_at - v.detected_at).total_seconds() for v in resolved_vulns_all)
+            / len(resolved_vulns_all)
+            / 86400,
+            1,
+        )
+    else:
+        avg_remediation_days = None
+
     stats = {
         "host_count": len(hosts),
         "total_vulns": len(all_vulns),
@@ -1031,6 +1101,11 @@ def dashboard(
             "topo_nodes": topo_nodes,
             "topo_lateral_edges": topo_lateral_edges,
             "attack_path_host_ids": attack_path_host_ids,
+            "open_vulns_sorted": open_vulns_sorted,
+            "remediation_status_counts": remediation_status_counts,
+            "aging_count": aging_count,
+            "avg_remediation_days": avg_remediation_days,
+            "vuln_status_labels": VULN_STATUS_LABELS,
         },
     )
 
