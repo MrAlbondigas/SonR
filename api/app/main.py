@@ -1,7 +1,9 @@
 import math
 import os
+import shlex
 from datetime import datetime, timedelta, timezone
 
+import paramiko
 import requests
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse, HTMLResponse
@@ -19,6 +21,7 @@ templates = Jinja2Templates(directory="app/templates")
 
 SCANNER_API_KEY = os.environ["SCANNER_API_KEY"]
 REPORTS_DIR = "/app/reports"
+SERVICE_REMOVAL_THRESHOLD = 3
 ALERT_WEBHOOK_URL = os.environ.get("ALERT_WEBHOOK_URL", "").strip()
 
 
@@ -356,6 +359,7 @@ def ingest_scan(payload: schemas.ScanIngest, db: Session = Depends(get_db)):
                         )
                     )
             else:
+                existing.missed_scans = 0
                 if existing.removed_at is not None:
                     existing.removed_at = None
                     db.add(
@@ -396,6 +400,11 @@ def ingest_scan(payload: schemas.ScanIngest, db: Session = Depends(get_db)):
             for sw in still_present:
                 if (sw.name, sw.port) in seen_keys:
                     continue
+                sw.missed_scans += 1
+                # exige varios escaneos consecutivos sin verlo antes de darlo por caido: un solo
+                # escaneo con -T4/top-ports puede fallar en detectar un puerto que sigue abierto
+                if sw.missed_scans < SERVICE_REMOVAL_THRESHOLD:
+                    continue
                 sw.removed_at = func.now()
                 resolved_count = 0
                 for v in open_vulns(sw):
@@ -407,7 +416,8 @@ def ingest_scan(payload: schemas.ScanIngest, db: Session = Depends(get_db)):
                         host_id=host.id,
                         event_type="service_removed",
                         description=(
-                            f"Servicio ya no detectado en {host_in.ip}: {sw.name} (puerto {sw.port})"
+                            f"Servicio ya no detectado en {host_in.ip} tras {sw.missed_scans} escaneos seguidos: "
+                            f"{sw.name} (puerto {sw.port})"
                             + (f" — {resolved_count} vulnerabilidad(es) asociada(s) marcada(s) como resuelta(s)" if resolved_count else "")
                         ),
                     )
@@ -811,6 +821,182 @@ def list_attack_paths(db: Session = Depends(get_db)):
     return compute_attack_paths(db)
 
 
+# --- Parcheo automatico por SSH (solo equipos con SSH abierto y credenciales guardadas) ---
+
+PACKAGE_NAME_OVERRIDES = {
+    "openssh": "openssh-server",
+    "apache": "apache2",
+    "apache httpd": "apache2",
+    "mysql": "mysql-server",
+    "mariadb": "mariadb-server",
+    "postgresql": "postgresql",
+    "proftpd": "proftpd-basic",
+}
+DEBIAN_LIKE = ("ubuntu", "debian", "kali", "mint")
+REDHAT_LIKE = ("centos", "red hat", "rhel", "fedora", "rocky", "alma")
+
+
+def host_has_ssh(host: models.Host) -> bool:
+    return any(s.port == 22 and s.removed_at is None for s in host.software)
+
+
+def generate_patch_command(os_guess: str | None, software_name: str) -> str | None:
+    pkg_raw = PACKAGE_NAME_OVERRIDES.get(software_name.lower(), software_name.lower().split(" ")[0])
+    pkg = "".join(ch for ch in pkg_raw if ch.isalnum() or ch in "-+.")
+    if not pkg:
+        return None
+    os_l = (os_guess or "").lower()
+    if any(k in os_l for k in REDHAT_LIKE):
+        return f"yum update -y {pkg}"
+    # sin os_guess fiable, la mayoria de equipos domesticos/practicas son Debian-like: usamos apt como mejor estimacion
+    if any(k in os_l for k in DEBIAN_LIKE) or not os_l or "linux" in os_l:
+        return f"apt-get update -qq && apt-get install --only-upgrade -y {pkg}"
+    return None
+
+
+def run_ssh_patch(host_ip: str, username: str, password: str, command: str) -> tuple[bool, str]:
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        client.connect(host_ip, username=username, password=password, timeout=10, banner_timeout=10)
+        # sudo -S via stdin: mas simple que configurar NOPASSWD, a costa de que la contrasena
+        # queda un instante visible en la lista de procesos remota (aceptable en este contexto de laboratorio)
+        full_cmd = f"echo {shlex.quote(password)} | sudo -S {command}"
+        _, stdout, stderr = client.exec_command(full_cmd, timeout=90)
+        exit_status = stdout.channel.recv_exit_status()
+        output = (stdout.read().decode(errors="replace") + "\n" + stderr.read().decode(errors="replace")).strip()
+        return exit_status == 0, output[-2000:]
+    except Exception as exc:
+        return False, str(exc)
+    finally:
+        client.close()
+
+
+@app.get("/ssh/hosts")
+def list_ssh_hosts(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
+    hosts = db.query(models.Host).order_by(models.Host.ip).all()
+    creds_by_host = {c.host_id: c for c in db.query(models.SSHCredential).all()}
+    return [
+        {
+            "host_id": h.id,
+            "ip": h.ip,
+            "hostname": h.hostname,
+            "username": creds_by_host[h.id].username if h.id in creds_by_host else None,
+            "has_credentials": h.id in creds_by_host,
+        }
+        for h in hosts
+        if host_has_ssh(h)
+    ]
+
+
+@app.post("/hosts/{host_id}/ssh-credentials")
+def save_ssh_credentials(
+    host_id: int,
+    payload: schemas.SSHCredentialIn,
+    db: Session = Depends(get_db),
+    admin: models.User = Depends(auth.require_admin),
+):
+    host = db.query(models.Host).filter(models.Host.id == host_id).first()
+    if not host:
+        raise HTTPException(status_code=404, detail="Host not found")
+    cred = db.query(models.SSHCredential).filter(models.SSHCredential.host_id == host_id).first()
+    if cred is None:
+        cred = models.SSHCredential(host_id=host_id, username=payload.username, password=payload.password)
+        db.add(cred)
+    else:
+        cred.username = payload.username
+        cred.password = payload.password
+    cred.updated_at = func.now()
+    cred.updated_by = admin.username
+    db.commit()
+    return {"ok": True}
+
+
+@app.delete("/hosts/{host_id}/ssh-credentials")
+def delete_ssh_credentials(
+    host_id: int, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)
+):
+    db.query(models.SSHCredential).filter(models.SSHCredential.host_id == host_id).delete()
+    db.commit()
+    return {"ok": True}
+
+
+@app.get("/patch/log")
+def get_patch_log(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
+    rows = db.query(models.PatchLog).order_by(models.PatchLog.id.desc()).limit(20).all()
+    return [
+        {
+            "id": r.id,
+            "host_ip": r.host.ip if r.host else None,
+            "command": r.command,
+            "success": r.success,
+            "output": r.output,
+            "executed_at": r.executed_at,
+            "executed_by": r.executed_by,
+        }
+        for r in rows
+    ]
+
+
+@app.post("/vulnerabilities/{vuln_id}/patch")
+def patch_vulnerability(
+    vuln_id: int, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)
+):
+    vuln = db.query(models.Vulnerability).filter(models.Vulnerability.id == vuln_id).first()
+    if not vuln:
+        raise HTTPException(status_code=404, detail="Vulnerability not found")
+    software = vuln.software
+    host = software.host
+    if not host_has_ssh(host):
+        raise HTTPException(status_code=400, detail="Este equipo no tiene el puerto SSH (22) detectado")
+    cred = db.query(models.SSHCredential).filter(models.SSHCredential.host_id == host.id).first()
+    if cred is None:
+        raise HTTPException(status_code=400, detail="Guarda credenciales SSH para este equipo antes de parchear")
+
+    command = generate_patch_command(host.os_guess, software.name)
+    if command is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No se pudo generar un comando de parcheo automatico para este software/SO. Aplica el parche manualmente.",
+        )
+
+    success, output = run_ssh_patch(host.ip, cred.username, cred.password, command)
+
+    db.add(
+        models.PatchLog(
+            vulnerability_id=vuln.id,
+            host_id=host.id,
+            command=command,
+            success=success,
+            output=output,
+            executed_by=admin.username,
+        )
+    )
+    if success:
+        vuln.status = "resuelta"
+        vuln.resolved_at = func.now()
+        db.add(
+            models.Event(
+                host_id=host.id,
+                event_type="vuln_patched",
+                description=(
+                    f"{vuln.cve_id or software.name} parcheado automaticamente por SSH en {host.ip} "
+                    f"por {admin.username}: {command}"
+                ),
+            )
+        )
+    db.commit()
+    if success:
+        record_risk_snapshot(db)
+        send_webhook_alert(
+            db,
+            f"🛠️ Parche aplicado automaticamente en {host.ip} ({software.name}): {vuln.cve_id or ''}".strip(),
+            vulnerability_id=vuln.id,
+            host_id=host.id,
+        )
+    return {"ok": True, "success": success, "command": command, "output": output}
+
+
 # --- Reportes ---
 
 
@@ -1053,6 +1239,22 @@ def dashboard(
     scan_policy = policy_to_dict(get_or_create_policy(db))
     scan_policy["interval_minutes"] = max(1, scan_policy["interval_seconds"] // 60)
 
+    # --- Parcheo automatico por SSH ---
+    ssh_creds_by_host = {c.host_id: c for c in db.query(models.SSHCredential).all()}
+    ssh_hosts = [
+        {
+            "host_id": h.id,
+            "ip": h.ip,
+            "hostname": h.hostname,
+            "username": ssh_creds_by_host[h.id].username if h.id in ssh_creds_by_host else None,
+            "has_credentials": h.id in ssh_creds_by_host,
+        }
+        for h in hosts
+        if host_has_ssh(h)
+    ]
+    patchable_host_ids = {h["host_id"] for h in ssh_hosts if h["has_credentials"]}
+    patch_log = db.query(models.PatchLog).order_by(models.PatchLog.id.desc()).limit(15).all()
+
     # --- Riesgo y tendencia ---
     host_risks = sorted((compute_host_risk(h) for h in hosts), key=lambda r: r["score"], reverse=True)
     host_risk_by_id = {r["host_id"]: r for r in host_risks}
@@ -1178,6 +1380,9 @@ def dashboard(
             "avg_remediation_days": avg_remediation_days,
             "vuln_status_labels": VULN_STATUS_LABELS,
             "scan_policy": scan_policy,
+            "ssh_hosts": ssh_hosts,
+            "patchable_host_ids": patchable_host_ids,
+            "patch_log": patch_log,
         },
     )
 

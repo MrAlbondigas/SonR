@@ -86,6 +86,31 @@ class RiskSnapshot(Base):
     total_score = Column(Integer, nullable=False)
 
 
+class SSHCredential(Base):
+    __tablename__ = "ssh_credentials"
+
+    host_id = Column(Integer, ForeignKey("hosts.id", ondelete="CASCADE"), primary_key=True)
+    username = Column(Text, nullable=False)
+    password = Column(Text, nullable=False)
+    updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    updated_by = Column(Text)
+
+
+class PatchLog(Base):
+    __tablename__ = "patch_log"
+
+    id = Column(Integer, primary_key=True)
+    vulnerability_id = Column(Integer, ForeignKey("vulnerabilities.id", ondelete="SET NULL"))
+    host_id = Column(Integer, ForeignKey("hosts.id", ondelete="CASCADE"))
+    command = Column(Text, nullable=False)
+    success = Column(Boolean, nullable=False)
+    output = Column(Text)
+    executed_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    executed_by = Column(Text)
+
+    host = relationship("Host")
+
+
 class ScanPolicy(Base):
     __tablename__ = "scan_policy"
 
@@ -111,6 +136,7 @@ class Software(Base):
     detected_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     cve_checked_at = Column(TIMESTAMP(timezone=True))
     removed_at = Column(TIMESTAMP(timezone=True))
+    missed_scans = Column(Integer, nullable=False, default=0)
 
     host = relationship("Host", back_populates="software")
     vulnerabilities = relationship(

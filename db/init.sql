@@ -34,6 +34,7 @@ CREATE TABLE software (
     detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     cve_checked_at TIMESTAMPTZ,
     removed_at TIMESTAMPTZ,
+    missed_scans INTEGER NOT NULL DEFAULT 0,
     UNIQUE (host_id, name, port)
 );
 
@@ -104,6 +105,25 @@ CREATE TABLE scan_requests (
     requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     requested_by TEXT,
     consumed_at TIMESTAMPTZ
+);
+
+CREATE TABLE ssh_credentials (
+    host_id INTEGER PRIMARY KEY REFERENCES hosts(id) ON DELETE CASCADE,
+    username TEXT NOT NULL,
+    password TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_by TEXT
+);
+
+CREATE TABLE patch_log (
+    id SERIAL PRIMARY KEY,
+    vulnerability_id INTEGER REFERENCES vulnerabilities(id) ON DELETE SET NULL,
+    host_id INTEGER REFERENCES hosts(id) ON DELETE CASCADE,
+    command TEXT NOT NULL,
+    success BOOLEAN NOT NULL,
+    output TEXT,
+    executed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    executed_by TEXT
 );
 
 CREATE TABLE scan_policy (

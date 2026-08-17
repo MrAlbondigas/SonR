@@ -50,6 +50,11 @@ class VulnStatusUpdate(BaseModel):
     status: str
 
 
+class SSHCredentialIn(BaseModel):
+    username: str
+    password: str
+
+
 class ScanPolicyUpdate(BaseModel):
     enabled: bool
     interval_seconds: int

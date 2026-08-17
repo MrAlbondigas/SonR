@@ -343,6 +343,21 @@
   .status-select:hover, .status-select:focus { border-color: var(--series-blue); color: var(--text-primary); outline: none; }
   .status-select:disabled { opacity: 0.5; cursor: wait; }
 
+  .btn-patch {
+    background: rgba(12,163,12,0.12); border: 1px solid var(--status-good); color: var(--status-good);
+    font-size: 0.74rem; font-weight: 600; padding: 0.3rem 0.6rem; border-radius: 6px; cursor: pointer;
+    font-family: inherit; white-space: nowrap; transition: background 0.15s ease;
+  }
+  .btn-patch:hover { background: rgba(12,163,12,0.22); }
+  .btn-patch:disabled { opacity: 0.5; cursor: wait; }
+  .btn-patch.danger { background: rgba(208,59,59,0.1); border-color: var(--status-critical); color: var(--status-critical); margin-left: 0.35rem; }
+  .btn-patch.danger:hover { background: rgba(208,59,59,0.2); }
+  .ssh-cred-input {
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);
+    border-radius: 6px; padding: 0.35rem 0.55rem; font-size: 0.82rem; font-family: inherit; width: 140px;
+  }
+  .ssh-cred-input:focus { border-color: var(--series-blue); outline: none; }
+
   /* Politica de escaneo */
   .policy-panel { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 1.3rem 1.5rem; }
   .policy-form { display: flex; flex-direction: column; gap: 1.1rem; max-width: 460px; }
@@ -533,6 +548,11 @@
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 C8 3 6 6 6 10 V13 L4 17 H20 L18 13 V10 C18 6 16 3 12 3 Z"/><path d="M9.5 20 a2.5 2.5 0 0 0 5 0"/></svg></span>
           <span class="label-text">Alertas</span>
           <span class="dot-indicator {{ 'ok' if webhook_configured else '' }}"></span>
+        </a>
+        <a class="nav-item" data-view="parcheo" title="Parcheo">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 3.5 L20.5 9.5 L11 19 L5 19 L5 13 Z"/><path d="M13 5 L19 11"/></svg></span>
+          <span class="label-text">Parcheo</span>
+          <span class="count">{{ ssh_hosts|length }}</span>
         </a>
         <a class="nav-item" data-view="demo" title="Demo">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3 h6 M10 3 v6.2 L4.6 18.4 A2 2 0 0 0 6.4 21.4 H17.6 A2 2 0 0 0 19.4 18.4 L14 9.2 V3"/><path d="M6.5 15 h11"/></svg></span>
@@ -783,6 +803,62 @@
       </section>
     </div>
 
+    <!-- Parcheo automático -->
+    <div class="view" data-view="parcheo">
+      <h1>Parcheo automático por SSH</h1>
+      <p class="empty-state" style="margin: 0 0 1.2rem;">
+        Solo se ofrece para equipos donde se detectó el puerto SSH (22) abierto. Guarda credenciales aquí para
+        poder aplicar parches con un clic desde Remediación — el sistema conecta por SSH, ejecuta
+        <code>apt-get</code>/<code>yum</code> según el sistema operativo detectado, y registra el resultado abajo.
+      </p>
+
+      <section>
+        <h2>Credenciales SSH</h2>
+        <div class="table-wrap">
+        <table>
+          <thead><tr><th>Equipo</th><th>Usuario</th><th>Contraseña</th><th>Estado</th><th></th></tr></thead>
+          <tbody>
+            {% for h in ssh_hosts %}
+            <tr>
+              <td>{{ h.ip }}{% if h.hostname %} <span class="muted">({{ h.hostname }})</span>{% endif %}</td>
+              <td><input type="text" class="ssh-cred-input" id="ssh-user-{{ h.host_id }}" placeholder="usuario" value="{{ h.username or '' }}"></td>
+              <td><input type="password" class="ssh-cred-input" id="ssh-pass-{{ h.host_id }}" placeholder="contraseña"></td>
+              <td>{% if h.has_credentials %}<span class="badge count">Guardadas</span>{% else %}<span class="muted">Sin guardar</span>{% endif %}</td>
+              <td style="white-space: nowrap;">
+                <button class="btn-patch" onclick="saveSSHCreds({{ h.host_id }})">Guardar</button>
+                {% if h.has_credentials %}<button class="btn-patch danger" onclick="deleteSSHCreds({{ h.host_id }})">Quitar</button>{% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="muted">No se ha detectado ningún equipo con el puerto SSH abierto todavía.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </section>
+
+      <section>
+        <h2>Registro de parcheo</h2>
+        <div class="table-wrap">
+        <table>
+          <thead><tr><th>Fecha</th><th>Equipo</th><th>Comando</th><th>Resultado</th></tr></thead>
+          <tbody>
+            {% for p in patch_log %}
+            <tr>
+              <td class="num muted">{{ p.executed_at }}</td>
+              <td>{{ p.host.ip if p.host else "—" }}</td>
+              <td class="muted" style="font-family: var(--font-mono); font-size: 0.76rem;">{{ p.command }}</td>
+              <td><span class="badge {{ 'count' if p.success else 'sev-critical' }}">{{ 'Éxito' if p.success else 'Fallo' }}</span></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="muted">Todavía no se ha aplicado ningún parche.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </section>
+    </div>
+
     <!-- Demo -->
     <div class="view" data-view="demo">
       <h1>Modo demo</h1>
@@ -897,7 +973,7 @@
         <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>CVE</th><th>Software</th><th>Equipo</th><th>CVSS</th><th>Severidad</th><th>Detectada</th><th>Estado</th></tr>
+            <tr><th>CVE</th><th>Software</th><th>Equipo</th><th>CVSS</th><th>Severidad</th><th>Detectada</th><th>Estado</th>{% if is_admin %}<th>Parcheo</th>{% endif %}</tr>
           </thead>
           <tbody>
             {% set sev_labels = {'critical': 'Crítica', 'high': 'Alta', 'medium': 'Media', 'low': 'Baja'} %}
@@ -920,9 +996,18 @@
                 <span class="badge count">{{ vuln_status_labels.get(v.status, v.status) }}</span>
                 {% endif %}
               </td>
+              {% if is_admin %}
+              <td>
+                {% if v.software.host_id in patchable_host_ids %}
+                <button class="btn-patch" data-vuln-id="{{ v.id }}" onclick="patchVulnerability(this)">Parchear por SSH</button>
+                {% else %}
+                <span class="muted" style="font-size:0.74rem;">requiere SSH + credenciales</span>
+                {% endif %}
+              </td>
+              {% endif %}
             </tr>
             {% else %}
-            <tr><td colspan="7" class="muted">No hay vulnerabilidades abiertas ahora mismo.</td></tr>
+            <tr><td colspan="8" class="muted">No hay vulnerabilidades abiertas ahora mismo.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -1291,6 +1376,70 @@
     } catch (err) {
       selectEl.disabled = false;
       alert("No se pudo actualizar el estado. Intenta de nuevo.");
+    }
+  }
+
+  async function patchVulnerability(btnEl) {
+    const vulnId = btnEl.dataset.vulnId;
+    if (!confirm("Esto va a conectarse por SSH a ese equipo y ejecutar un comando de actualizacion real. Continuar?")) return;
+    btnEl.disabled = true;
+    const original = btnEl.textContent;
+    btnEl.textContent = "Parcheando...";
+    try {
+      const resp = await fetch("/vulnerabilities/" + vulnId + "/patch", { method: "POST" });
+      const data = await resp.json();
+      if (!resp.ok) {
+        alert("No se pudo parchear: " + (data.detail || "error desconocido"));
+        btnEl.disabled = false;
+        btnEl.textContent = original;
+        return;
+      }
+      if (data.success) {
+        alert("Parche aplicado correctamente.\nComando: " + data.command);
+        location.hash = "remediacion";
+        location.reload();
+      } else {
+        alert("El parche fallo.\nComando: " + data.command + "\nSalida:\n" + data.output);
+        btnEl.disabled = false;
+        btnEl.textContent = original;
+      }
+    } catch (err) {
+      alert("No se pudo contactar con el servidor.");
+      btnEl.disabled = false;
+      btnEl.textContent = original;
+    }
+  }
+
+  async function saveSSHCreds(hostId) {
+    const username = document.getElementById("ssh-user-" + hostId).value.trim();
+    const password = document.getElementById("ssh-pass-" + hostId).value;
+    if (!username || !password) {
+      alert("Introduce usuario y contraseña.");
+      return;
+    }
+    try {
+      const resp = await fetch("/hosts/" + hostId + "/ssh-credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: username, password: password }),
+      });
+      if (!resp.ok) throw new Error("failed");
+      location.hash = "parcheo";
+      location.reload();
+    } catch (err) {
+      alert("No se pudieron guardar las credenciales.");
+    }
+  }
+
+  async function deleteSSHCreds(hostId) {
+    if (!confirm("¿Quitar las credenciales SSH guardadas para este equipo?")) return;
+    try {
+      const resp = await fetch("/hosts/" + hostId + "/ssh-credentials", { method: "DELETE" });
+      if (!resp.ok) throw new Error("failed");
+      location.hash = "parcheo";
+      location.reload();
+    } catch (err) {
+      alert("No se pudieron quitar las credenciales.");
     }
   }
 
