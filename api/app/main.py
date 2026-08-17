@@ -744,6 +744,63 @@ def compute_security_grade(
     return {"score": score, "letter": letter, "color": color, "breakdown": breakdown}
 
 
+ROUTER_VENDOR_HINTS = (
+    "tp-link", "netgear", "d-link", "asus", "ubiquiti", "mikrotik", "huawei technologies",
+    "cisco", "linksys", "zyxel", "technicolor", "arris", "sagemcom", "fritz", "avm audiovis",
+)
+PRINTER_VENDOR_HINTS = ("hewlett packard", "hp inc", "canon", "epson", "brother", "lexmark", "xerox")
+IOT_VENDOR_HINTS = (
+    "google", "amazon", "sonos", "philips", "espressif", "xiaomi", "roku", "belkin",
+    "shelly", "tuya", "nest labs", "ring llc", "wyze", "chromecast", "sonoff", "tp-link",
+)
+APPLE_VENDOR_HINTS = ("apple",)
+DEVICE_TYPE_LABELS = {
+    "router": "Router / Gateway",
+    "printer": "Impresora",
+    "iot": "IoT / Domótica",
+    "server": "Servidor",
+    "windows": "PC Windows",
+    "linux": "PC / Servidor Linux",
+    "mac": "Mac",
+    "mobile": "Móvil / Tablet",
+    "unknown": "Sin clasificar",
+}
+
+
+def classify_device(host: models.Host) -> dict:
+    vendor = (host.vendor or "").lower()
+    os_guess = (host.os_guess or "").lower()
+    hostname = (host.hostname or "").lower()
+    ports = {s.port for s in host.software if s.removed_at is None and s.port}
+
+    key = "unknown"
+    if (
+        (host.ip.endswith(".1") or any(h in vendor for h in ROUTER_VENDOR_HINTS) or "embedded" in os_guess)
+        and not ({631, 9100, 515} & ports)
+    ):
+        key = "router"
+    elif any(h in vendor for h in PRINTER_VENDOR_HINTS) or ({631, 9100, 515} & ports):
+        key = "printer"
+    elif "windows" in os_guess or ({135, 139, 445, 3389} & ports):
+        key = "windows"
+    elif any(h in vendor for h in APPLE_VENDOR_HINTS):
+        key = "mobile" if any(h in hostname for h in ("iphone", "ipad", "ios")) else "mac"
+    elif any(h in hostname for h in ("iphone", "android", "galaxy", "-phone", "redmi", "pixel")):
+        key = "mobile"
+    elif any(h in vendor for h in IOT_VENDOR_HINTS) or (
+        ({8008, 8009, 1900, 8123, 8443} & ports) and len(ports) <= 3
+    ):
+        key = "iot"
+    elif "linux" in os_guess:
+        server_ports = {22, 80, 443, 3306, 5432, 8080, 21, 25}
+        if len(server_ports & ports) >= 2 or "server" in hostname or "srv" in hostname:
+            key = "server"
+        else:
+            key = "linux"
+
+    return {"key": key, "label": DEVICE_TYPE_LABELS[key]}
+
+
 def compute_host_risk(host: models.Host) -> dict:
     score = 0
     open_vuln_count = 0
@@ -1302,6 +1359,8 @@ def dashboard(
     patchable_host_ids = {h["host_id"] for h in ssh_hosts if h["has_credentials"]}
     patch_log = db.query(models.PatchLog).order_by(models.PatchLog.id.desc()).limit(15).all()
 
+    device_types = {h.id: classify_device(h) for h in hosts}
+
     # --- Riesgo y tendencia ---
     host_risks = sorted((compute_host_risk(h) for h in hosts), key=lambda r: r["score"], reverse=True)
     host_risk_by_id = {r["host_id"]: r for r in host_risks}
@@ -1363,6 +1422,7 @@ def dashboard(
                 "level_label": risk["level_label"],
                 "level_color": risk["level_color"],
                 "software_count": len(h.software),
+                "type_label": device_types[h.id]["label"],
             }
         )
     attack_path_host_ids = {p["host_id"] for p in attack_paths}
@@ -1431,6 +1491,7 @@ def dashboard(
             "patchable_host_ids": patchable_host_ids,
             "patch_log": patch_log,
             "security_grade": security_grade,
+            "device_types": device_types,
         },
     )
 
