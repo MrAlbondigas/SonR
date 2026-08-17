@@ -702,6 +702,48 @@ def risk_level_for_score(score: int) -> tuple[str, str, str]:
     return RISK_LEVELS[-1][1], RISK_LEVELS[-1][2], RISK_LEVELS[-1][3]
 
 
+def compute_security_grade(
+    severity_counts: dict,
+    credential_count: int,
+    attack_path_count: int,
+    aging_count: int,
+    kev_count: int,
+) -> dict:
+    score = 100.0
+    breakdown = []
+
+    def deduct(points: float, count: int, label: str) -> None:
+        nonlocal score
+        if not count:
+            return
+        total = round(points * count, 1)
+        score -= total
+        breakdown.append({"points": total, "text": f"{count} {label}"})
+
+    deduct(8, severity_counts.get("critical", 0), "vulnerabilidad(es) crítica(s)")
+    deduct(4, severity_counts.get("high", 0), "vulnerabilidad(es) alta(s)")
+    deduct(2, severity_counts.get("medium", 0), "vulnerabilidad(es) media(s)")
+    deduct(0.5, severity_counts.get("low", 0), "vulnerabilidad(es) baja(s)")
+    deduct(10, kev_count, "vulnerabilidad(es) con exploit público conocido")
+    deduct(15, credential_count, "credencial(es) por defecto")
+    deduct(10, attack_path_count, "ruta(s) de ataque activa(s)")
+    deduct(3, aging_count, "vulnerabilidad(es) abierta(s) hace más de 14 días")
+
+    score = max(0, min(100, round(score)))
+    if score >= 90:
+        letter, color = "A", "var(--status-good)"
+    elif score >= 80:
+        letter, color = "B", "var(--series-aqua)"
+    elif score >= 70:
+        letter, color = "C", "var(--status-warning)"
+    elif score >= 60:
+        letter, color = "D", "var(--status-serious)"
+    else:
+        letter, color = "F", "var(--status-critical)"
+
+    return {"score": score, "letter": letter, "color": color, "breakdown": breakdown}
+
+
 def compute_host_risk(host: models.Host) -> dict:
     score = 0
     open_vuln_count = 0
@@ -1221,6 +1263,11 @@ def dashboard(
     else:
         avg_remediation_days = None
 
+    kev_count = sum(1 for v in all_vulns if v.known_exploited)
+    security_grade = compute_security_grade(
+        severity_counts, credential_count, len(attack_paths), aging_count, kev_count
+    )
+
     stats = {
         "host_count": len(hosts),
         "total_vulns": len(all_vulns),
@@ -1383,6 +1430,7 @@ def dashboard(
             "ssh_hosts": ssh_hosts,
             "patchable_host_ids": patchable_host_ids,
             "patch_log": patch_log,
+            "security_grade": security_grade,
         },
     )
 
