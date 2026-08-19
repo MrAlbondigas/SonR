@@ -1,5 +1,7 @@
 # Proyecto Cyber — Escáner de vulnerabilidades de red
 
+[![Tests](https://github.com/MrAlbondigas/-proyecto-cyber/actions/workflows/tests.yml/badge.svg)](https://github.com/MrAlbondigas/-proyecto-cyber/actions/workflows/tests.yml)
+
 Plataforma de gestión de vulnerabilidades para la red local: descubre equipos, identifica software y versiones en ejecución, cruza contra vulnerabilidades conocidas y expone los resultados en un dashboard web.
 
 ## Arquitectura
@@ -20,6 +22,17 @@ docker compose up -d --build
 ```
 
 Dashboard disponible en `http://<ip-vm>:8000`.
+
+## Tests
+
+```bash
+cd api
+DATABASE_URL=sqlite:///./test.db JWT_SECRET=test SCANNER_API_KEY=test ADMIN_USERNAME=admin ADMIN_PASSWORD=test \
+  pytest app/tests -v
+```
+
+Se ejecutan automáticamente en cada push/PR a `main` vía GitHub Actions (ver badge arriba). Corren contra una
+base de datos SQLite aislada — nunca tocan los datos reales de Postgres.
 
 ## Roadmap
 
