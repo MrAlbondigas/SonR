@@ -6,6 +6,14 @@ CREATE TABLE users (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE login_attempts (
+    id SERIAL PRIMARY KEY,
+    username TEXT NOT NULL,
+    ip_address TEXT,
+    success BOOLEAN NOT NULL,
+    attempted_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE hosts (
     id SERIAL PRIMARY KEY,
     ip TEXT UNIQUE NOT NULL,
@@ -141,3 +149,5 @@ CREATE INDEX idx_software_host ON software(host_id);
 CREATE INDEX idx_vuln_software ON vulnerabilities(software_id);
 CREATE INDEX idx_events_occurred ON events(occurred_at DESC);
 CREATE INDEX idx_credfindings_host ON credential_findings(host_id);
+CREATE INDEX idx_login_attempts_username ON login_attempts(username, attempted_at);
+CREATE INDEX idx_login_attempts_ip ON login_attempts(ip_address, attempted_at);

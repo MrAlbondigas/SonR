@@ -32,6 +32,9 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
   });
   if (res.ok) {
     window.location.href = "/";
+  } else if (res.status === 429) {
+    const data = await res.json().catch(() => ({}));
+    document.getElementById("error").textContent = data.detail || "Demasiados intentos fallidos. Espera unos minutos.";
   } else {
     document.getElementById("error").textContent = "Credenciales inválidas";
   }

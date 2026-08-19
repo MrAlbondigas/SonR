@@ -90,11 +90,46 @@ def verify_scanner_key(x_api_key: str = Header(default="")):
 # --- Auth ---
 
 
+LOGIN_MAX_ATTEMPTS = 5
+LOGIN_LOCKOUT_MINUTES = 15
+
+
+def _recent_failed_logins(db: Session, field, value, cutoff: datetime) -> int:
+    return (
+        db.query(models.LoginAttempt)
+        .filter(field == value, models.LoginAttempt.success.is_(False), models.LoginAttempt.attempted_at >= cutoff)
+        .count()
+    )
+
+
 @app.post("/auth/login")
-def login(payload: schemas.LoginIn, response: Response, db: Session = Depends(get_db)):
+def login(payload: schemas.LoginIn, request: Request, response: Response, db: Session = Depends(get_db)):
+    ip_address = request.client.host if request.client else "unknown"
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=LOGIN_LOCKOUT_MINUTES)
+
+    failed_by_user = _recent_failed_logins(db, models.LoginAttempt.username, payload.username, cutoff)
+    if failed_by_user >= LOGIN_MAX_ATTEMPTS:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Demasiados intentos fallidos. Espera {LOGIN_LOCKOUT_MINUTES} minutos antes de volver a intentarlo.",
+        )
+
     user = db.query(models.User).filter(models.User.username == payload.username).first()
-    if not user or not auth.verify_password(payload.password, user.password_hash):
+    success = user is not None and auth.verify_password(payload.password, user.password_hash)
+
+    db.add(models.LoginAttempt(username=payload.username, ip_address=ip_address, success=success))
+    db.commit()
+
+    if not success:
+        # avisa una sola vez, justo en el intento que provoca el bloqueo (no en cada reintento posterior)
+        if failed_by_user + 1 == LOGIN_MAX_ATTEMPTS:
+            send_webhook_alert(
+                db,
+                f"🔒 Cuenta bloqueada temporalmente tras {LOGIN_MAX_ATTEMPTS} intentos fallidos de login: "
+                f"usuario '{payload.username}' desde {ip_address}",
+            )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
     token = auth.create_access_token(user.username, user.role)
     response.set_cookie("session_token", token, httponly=True, samesite="lax", max_age=8 * 3600)
     return {"username": user.username, "role": user.role}

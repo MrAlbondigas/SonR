@@ -15,6 +15,16 @@ class User(Base):
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
 
+class LoginAttempt(Base):
+    __tablename__ = "login_attempts"
+
+    id = Column(Integer, primary_key=True)
+    username = Column(Text, nullable=False)
+    ip_address = Column(Text)
+    success = Column(Boolean, nullable=False)
+    attempted_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+
 class Host(Base):
     __tablename__ = "hosts"
 
