@@ -73,7 +73,8 @@ def scan_host(ip: str) -> dict:
             continue
         name = service.get("product") or service.get("name") or "unknown"
         version = service.get("version")
-        software.append({"name": name, "version": version, "port": int(port.get("portid"))})
+        cpe = service.findtext("cpe")
+        software.append({"name": name, "version": version, "port": int(port.get("portid")), "cpe": cpe})
 
     return {
         "ip": ip,

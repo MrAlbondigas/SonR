@@ -37,7 +37,66 @@ def severity_from_cvss(score):
     return "low"
 
 
-def query_nvd(name: str, version: str | None) -> list[dict]:
+def cpe22_to_23(cpe22: str | None) -> str | None:
+    """Convierte el CPE 2.2 URI-binding que emite nmap (cpe:/a:vendor:product:version)
+    al formato 2.3 formatted-string-binding de 13 componentes que exige la API de NVD.
+    Devuelve None si no hay CPE, si no empieza por 'cpe:/' o si el componente version
+    esta vacio/ausente o es un comodin ('-') — la API de NVD exige version concreta
+    para poder usar cpeName en vez de recurrir a busqueda por palabra clave.
+    """
+    if not cpe22 or not cpe22.startswith("cpe:/"):
+        return None
+    parts = cpe22[len("cpe:/"):].split(":")
+    parts += [""] * (7 - len(parts))
+    part, vendor, product, version = parts[0], parts[1], parts[2], parts[3]
+    if not version or version in ("-", "*"):
+        return None
+    fields = [part or "*", vendor or "*", product or "*", version] + ["*"] * 7
+    return "cpe:2.3:" + ":".join(fields)
+
+
+def query_nvd_by_cpe(cpe23: str) -> list[dict] | None:
+    """Busca CVEs confirmados como vulnerables para este CPE exacto (matching preciso,
+    no aproximado). Ojo con un detalle real de la API de NVD, comprobado en produccion:
+    'cpeName' + 'isVulnerable=true' devuelve 404 TANTO si el CPE no existe en su
+    diccionario COMO si el CPE existe pero no esta marcado vulnerable a nada — son dos
+    situaciones muy distintas (una es 'no tenemos datos', la otra es 'comprobado, limpio')
+    que no se pueden distinguir con una sola peticion. Por eso primero comprobamos si NVD
+    reconoce el CPE en absoluto (sin filtrar por vulnerabilidad) antes de aplicar el filtro.
+
+    Devuelve: lista de CVEs si hay coincidencias vulnerables; lista vacia si el CPE es
+    conocido pero confirmado sin vulnerabilidades activas (resultado real, no un fallo);
+    None solo si NVD no reconoce el CPE en absoluto (el llamador debe recurrir entonces
+    a busqueda por palabra clave).
+    """
+    headers = {"apiKey": NVD_API_KEY} if NVD_API_KEY else {}
+
+    base_resp = requests.get(
+        NVD_URL, params={"cpeName": cpe23, "resultsPerPage": 1}, headers=headers, timeout=20
+    )
+    if base_resp.status_code == 404:
+        return None  # NVD no tiene ningun dato de aplicabilidad para este CPE exacto
+    if base_resp.status_code != 200:
+        print(f"NVD (cpeName) respondio {base_resp.status_code} para '{cpe23}'")
+        return None
+
+    time.sleep(6)  # respeta el limite publico de NVD (5 peticiones / 30s)
+
+    vuln_resp = requests.get(
+        NVD_URL,
+        params={"cpeName": cpe23, "isVulnerable": "true", "resultsPerPage": 20},
+        headers=headers,
+        timeout=20,
+    )
+    if vuln_resp.status_code == 404:
+        return []  # CPE conocido y confirmado limpio: resultado real, no un fallo de la consulta
+    if vuln_resp.status_code != 200:
+        print(f"NVD (cpeName+isVulnerable) respondio {vuln_resp.status_code} para '{cpe23}'")
+        return None
+    return _parse_nvd_response(vuln_resp.json())
+
+
+def query_nvd_by_keyword(name: str, version: str | None) -> list[dict]:
     keyword = f"{name} {version}" if version else name
     headers = {"apiKey": NVD_API_KEY} if NVD_API_KEY else {}
     params = {"keywordSearch": keyword, "resultsPerPage": 5}
@@ -45,7 +104,10 @@ def query_nvd(name: str, version: str | None) -> list[dict]:
     if resp.status_code != 200:
         print(f"NVD respondio {resp.status_code} para '{keyword}'")
         return []
-    data = resp.json()
+    return _parse_nvd_response(resp.json())
+
+
+def _parse_nvd_response(data: dict) -> list[dict]:
     results = []
     for item in data.get("vulnerabilities", []):
         cve = item.get("cve", {})
@@ -72,13 +134,25 @@ def run_cycle():
     for sw in pending:
         name = sw["name"]
         if name.lower() in GENERIC_NAMES:
-            vulns = []
+            vulns, match_type = [], "keyword"
         else:
-            try:
-                cves = query_nvd(name, sw.get("version"))
-            except Exception as exc:
-                print(f"Error consultando NVD para {name}: {exc}")
-                cves = []
+            cpe23 = cpe22_to_23(sw.get("cpe"))
+            cves = None
+            match_type = "cpe"
+            if cpe23:
+                try:
+                    cves = query_nvd_by_cpe(cpe23)
+                except Exception as exc:
+                    print(f"Error consultando NVD por CPE para {name}: {exc}")
+                time.sleep(6)  # respeta el limite publico de NVD (5 peticiones / 30s)
+
+            if cves is None:
+                match_type = "keyword"
+                try:
+                    cves = query_nvd_by_keyword(name, sw.get("version"))
+                except Exception as exc:
+                    print(f"Error consultando NVD por palabra clave para {name}: {exc}")
+                    cves = []
 
             vulns = [
                 {
@@ -88,12 +162,13 @@ def run_cycle():
                     "description": (c["description"] or "")[:500],
                     "remediation": f"Actualizar {name} a la ultima version estable disponible.",
                     "known_exploited": c["cve_id"] in kev,
+                    "match_type": match_type,
                 }
                 for c in cves
                 if c["cve_id"]
             ]
 
-        payload = {"software_id": sw["id"], "vulnerabilities": vulns}
+        payload = {"software_id": sw["id"], "vulnerabilities": vulns, "match_type": match_type}
         try:
             r = requests.post(
                 f"{API_URL}/vulnerabilities/ingest",

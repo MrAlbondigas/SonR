@@ -383,6 +383,7 @@ def ingest_scan(payload: schemas.ScanIngest, db: Session = Depends(get_db)):
                         name=sw_in.name,
                         version=sw_in.version,
                         port=sw_in.port,
+                        cpe=sw_in.cpe,
                     )
                 )
                 if not is_new_host:
@@ -422,6 +423,9 @@ def ingest_scan(payload: schemas.ScanIngest, db: Session = Depends(get_db)):
                         )
                     )
                     existing.version = sw_in.version
+                    existing.cve_checked_at = None
+                if sw_in.cpe and sw_in.cpe != existing.cpe:
+                    existing.cpe = sw_in.cpe
                     existing.cve_checked_at = None
                 existing.scan_id = scan.id
                 existing.detected_at = func.now()
@@ -480,7 +484,7 @@ def software_pending(db: Session = Depends(get_db)):
         .limit(20)
         .all()
     )
-    return [{"id": s.id, "name": s.name, "version": s.version} for s in rows]
+    return [{"id": s.id, "name": s.name, "version": s.version, "cpe": s.cpe} for s in rows]
 
 
 @app.post("/vulnerabilities/ingest", dependencies=[Depends(verify_scanner_key)])
@@ -492,7 +496,9 @@ def ingest_vulnerabilities(payload: schemas.VulnerabilityIngest, db: Session = D
     existing_by_cve = {v.cve_id: v for v in software.vulnerabilities}
     new_count = 0
     reopened_count = 0
+    superseded_count = 0
     pending_alerts = []
+    incoming_cve_ids = {v.cve_id for v in payload.vulnerabilities}
     for vuln_in in payload.vulnerabilities:
         existing = existing_by_cve.get(vuln_in.cve_id)
         if existing is not None:
@@ -531,9 +537,32 @@ def ingest_vulnerabilities(payload: schemas.VulnerabilityIngest, db: Session = D
                     f"{software.host.ip} ({software.name}): {vuln_in.cve_id}",
                 )
             )
+    # una comprobacion exacta por CPE es mas fiable que una coincidencia aproximada por
+    # palabra clave: si un hallazgo previo por palabra clave ya no aparece en el resultado
+    # exacto, se retira — la fuente mas precisa lo ha superado, no es que "ya no exista"
+    if payload.match_type == "cpe":
+        for v in open_vulns(software):
+            if v.match_type == "keyword" and v.cve_id not in incoming_cve_ids:
+                v.resolved_at = func.now()
+                v.status = "resuelta"
+                superseded_count += 1
+        if superseded_count:
+            db.add(
+                models.Event(
+                    host_id=software.host_id,
+                    event_type="vuln_superseded",
+                    description=(
+                        f"{superseded_count} coincidencia(s) aproximada(s) por palabra clave en "
+                        f"{software.name} ({software.host.ip}) descartada(s) tras una comprobacion "
+                        f"exacta por CPE que no las confirma"
+                    ),
+                )
+            )
+
     software.cve_checked_at = datetime.now(timezone.utc)
+    software.last_check_method = payload.match_type
     db.commit()
-    if new_count or reopened_count:
+    if new_count or reopened_count or superseded_count:
         record_risk_snapshot(db)
     for vuln_obj, message in pending_alerts:
         send_webhook_alert(db, message, vulnerability_id=vuln_obj.id, host_id=software.host_id)

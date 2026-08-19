@@ -408,6 +408,13 @@
   }
   .exploit-tag::before { content: "⚠"; }
 
+  .match-tag {
+    display: inline-flex; align-items: center; border-radius: 999px; padding: 0.05rem 0.45rem;
+    font-size: 0.65rem; font-weight: 650; letter-spacing: 0.02em; margin-left: 0.35rem; cursor: help;
+  }
+  .match-cpe { background: rgba(12,163,12,0.14); color: var(--status-good); }
+  .match-keyword { background: rgba(107,106,102,0.20); color: var(--text-muted); }
+
   .device-type { display: inline-flex; align-items: center; gap: 0.45rem; color: var(--text-secondary); }
   .device-icon { flex: none; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
   .device-icon svg { width: 16px; height: 16px; }
@@ -447,6 +454,7 @@
   .event-default_credentials{ border-left-color: var(--status-critical); }
   .event-service_removed    { border-left-color: var(--status-good); }
   .event-vuln_reopened      { border-left-color: var(--status-serious); }
+  .event-vuln_superseded    { border-left-color: var(--series-aqua); }
 
   /* HUD corner-bracket frame, reusable */
   .hud-frame { position: relative; }
@@ -997,7 +1005,10 @@
             {% set sev_labels = {'critical': 'Crítica', 'high': 'Alta', 'medium': 'Media', 'low': 'Baja'} %}
             {% for v in priorities %}
             <tr>
-              <td>{{ v.cve_id }}{% if v.known_exploited %}<span class="exploit-tag">EXPLOIT CONOCIDO</span>{% endif %}</td>
+              <td>
+                {{ v.cve_id }}{% if v.known_exploited %}<span class="exploit-tag">EXPLOIT CONOCIDO</span>{% endif %}
+                <span class="match-tag match-{{ v.match_type }}" title="{{ 'Coincidencia exacta por CPE contra el catalogo de NVD' if v.match_type == 'cpe' else 'Coincidencia aproximada por palabra clave (nombre + version) — sin CPE fiable disponible' }}">{{ 'CPE exacto' if v.match_type == 'cpe' else 'aprox.' }}</span>
+              </td>
               <td>{{ v.software.name }}</td>
               <td>{{ v.software.host.ip }}</td>
               <td class="num">{{ v.cvss or "—" }}</td>
@@ -1048,7 +1059,10 @@
             {% set sev_labels = {'critical': 'Crítica', 'high': 'Alta', 'medium': 'Media', 'low': 'Baja'} %}
             {% for v in open_vulns_sorted %}
             <tr>
-              <td>{{ v.cve_id }}{% if v.known_exploited %}<span class="exploit-tag">EXPLOIT CONOCIDO</span>{% endif %}</td>
+              <td>
+                {{ v.cve_id }}{% if v.known_exploited %}<span class="exploit-tag">EXPLOIT CONOCIDO</span>{% endif %}
+                <span class="match-tag match-{{ v.match_type }}" title="{{ 'Coincidencia exacta por CPE contra el catalogo de NVD' if v.match_type == 'cpe' else 'Coincidencia aproximada por palabra clave (nombre + version) — sin CPE fiable disponible' }}">{{ 'CPE exacto' if v.match_type == 'cpe' else 'aprox.' }}</span>
+              </td>
               <td>{{ v.software.name }}</td>
               <td>{{ v.software.host.ip }}</td>
               <td class="num">{{ v.cvss or "—" }}</td>

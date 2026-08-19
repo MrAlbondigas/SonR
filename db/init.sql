@@ -39,8 +39,10 @@ CREATE TABLE software (
     name TEXT NOT NULL,
     version TEXT,
     port INTEGER,
+    cpe TEXT,
     detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     cve_checked_at TIMESTAMPTZ,
+    last_check_method TEXT,
     removed_at TIMESTAMPTZ,
     missed_scans INTEGER NOT NULL DEFAULT 0,
     UNIQUE (host_id, name, port)
@@ -57,7 +59,8 @@ CREATE TABLE vulnerabilities (
     known_exploited BOOLEAN NOT NULL DEFAULT false,
     detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     resolved_at TIMESTAMPTZ,
-    status TEXT NOT NULL DEFAULT 'abierta'
+    status TEXT NOT NULL DEFAULT 'abierta',
+    match_type TEXT NOT NULL DEFAULT 'keyword'
 );
 
 CREATE TABLE risk_snapshots (

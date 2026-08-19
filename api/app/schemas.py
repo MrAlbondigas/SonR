@@ -5,6 +5,7 @@ class SoftwareIn(BaseModel):
     name: str
     version: str | None = None
     port: int | None = None
+    cpe: str | None = None
 
 
 class HostIn(BaseModel):
@@ -31,11 +32,13 @@ class VulnerabilityIn(BaseModel):
     description: str | None = None
     remediation: str | None = None
     known_exploited: bool = False
+    match_type: str = "keyword"
 
 
 class VulnerabilityIngest(BaseModel):
     software_id: int
     vulnerabilities: list[VulnerabilityIn]
+    match_type: str = "keyword"
 
 
 class CredentialFindingIn(BaseModel):

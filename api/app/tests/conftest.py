@@ -15,12 +15,22 @@ import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.main import app as fastapi_app  # noqa: E402
+from app.database import SessionLocal  # noqa: E402
 
 
 @pytest.fixture()
 def client():
     with TestClient(fastapi_app) as c:
         yield c
+
+
+@pytest.fixture()
+def db_session():
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
 
 
 @pytest.fixture()

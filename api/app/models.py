@@ -143,8 +143,10 @@ class Software(Base):
     name = Column(Text, nullable=False)
     version = Column(Text)
     port = Column(Integer)
+    cpe = Column(Text)
     detected_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     cve_checked_at = Column(TIMESTAMP(timezone=True))
+    last_check_method = Column(Text)
     removed_at = Column(TIMESTAMP(timezone=True))
     missed_scans = Column(Integer, nullable=False, default=0)
 
@@ -168,6 +170,7 @@ class Vulnerability(Base):
     detected_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     resolved_at = Column(TIMESTAMP(timezone=True))
     status = Column(Text, nullable=False, default="abierta")
+    match_type = Column(Text, nullable=False, default="keyword")
 
     software = relationship("Software", back_populates="vulnerabilities")
 
