@@ -970,7 +970,7 @@
               <td class="muted">{{ h.mac or "—" }}</td>
               <td>{{ h.vendor or "—" }}</td>
               <td>{{ h.os_guess or "—" }}</td>
-              <td><span class="badge count">{{ h.software|length }}</span></td>
+              <td><span class="badge count">{{ h.software|rejectattr('removed_at')|list|length }}</span></td>
               <td><span class="badge" style="background: color-mix(in srgb, {{ risk.level_color }} 15%, transparent); color: {{ risk.level_color }};">{{ risk.level_label }} · {{ risk.score }}</span></td>
               <td class="muted num">{{ h.last_seen }}</td>
             </tr>

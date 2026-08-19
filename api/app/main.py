@@ -121,7 +121,7 @@ def list_hosts(db: Session = Depends(get_db)):
             "hostname": h.hostname,
             "os_guess": h.os_guess,
             "last_seen": h.last_seen,
-            "software_count": len(h.software),
+            "software_count": len([s for s in h.software if s.removed_at is None]),
         }
         for h in hosts
     ]
