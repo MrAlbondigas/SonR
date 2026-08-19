@@ -6,6 +6,7 @@ class SoftwareIn(BaseModel):
     version: str | None = None
     port: int | None = None
     cpe: str | None = None
+    version_source: str = "network"
 
 
 class HostIn(BaseModel):

@@ -6,6 +6,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends nmap iproute2 \
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY scanner.py .
+COPY scanner.py conftest.py test_scanner.py .
 
 CMD ["python", "-u", "scanner.py"]

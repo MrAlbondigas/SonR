@@ -144,6 +144,7 @@ class Software(Base):
     version = Column(Text)
     port = Column(Integer)
     cpe = Column(Text)
+    version_source = Column(Text, nullable=False, default="network")
     detected_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     cve_checked_at = Column(TIMESTAMP(timezone=True))
     last_check_method = Column(Text)

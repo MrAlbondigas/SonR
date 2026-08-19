@@ -384,6 +384,7 @@ def ingest_scan(payload: schemas.ScanIngest, db: Session = Depends(get_db)):
                         version=sw_in.version,
                         port=sw_in.port,
                         cpe=sw_in.cpe,
+                        version_source=sw_in.version_source,
                     )
                 )
                 if not is_new_host:
@@ -411,13 +412,14 @@ def ingest_scan(payload: schemas.ScanIngest, db: Session = Depends(get_db)):
                         v.resolved_at = func.now()
                         v.status = "resuelta"
                         resolved_count += 1
+                    verified_note = " (version verificada por SSH en el propio equipo, no solo detectada por red)" if sw_in.version_source == "authenticated" else ""
                     db.add(
                         models.Event(
                             host_id=host.id,
                             event_type="version_change",
                             description=(
                                 f"{sw_in.name} en {host_in.ip} cambio de version: "
-                                f"{existing.version or 'desconocida'} -> {sw_in.version}"
+                                f"{existing.version or 'desconocida'} -> {sw_in.version}{verified_note}"
                                 + (f" ({resolved_count} vulnerabilidad(es) marcada(s) como resueltas, pendiente de reverificar)" if resolved_count else "")
                             ),
                         )
@@ -427,6 +429,7 @@ def ingest_scan(payload: schemas.ScanIngest, db: Session = Depends(get_db)):
                 if sw_in.cpe and sw_in.cpe != existing.cpe:
                     existing.cpe = sw_in.cpe
                     existing.cve_checked_at = None
+                existing.version_source = sw_in.version_source
                 existing.scan_id = scan.id
                 existing.detected_at = func.now()
 
@@ -586,6 +589,19 @@ def list_targets(db: Session = Depends(get_db)):
         if services:
             result.append({"host_id": h.id, "ip": h.ip, "services": services})
     return result
+
+
+@app.get("/ssh/credentials-for-scan", dependencies=[Depends(verify_scanner_key)])
+def ssh_credentials_for_scan(db: Session = Depends(get_db)):
+    """Uso exclusivo del propio escaner, para el escaneo autenticado. Nunca se expone
+    al navegador ni a ningun endpoint publico — solo responde con la clave del escaner."""
+    creds = db.query(models.SSHCredential).all()
+    ip_by_host = {h.id: h.ip for h in db.query(models.Host).all()}
+    return [
+        {"host_id": c.host_id, "ip": ip_by_host.get(c.host_id), "username": c.username, "password": c.password}
+        for c in creds
+        if c.host_id in ip_by_host
+    ]
 
 
 @app.post("/credentials/ingest", dependencies=[Depends(verify_scanner_key)])

@@ -40,6 +40,7 @@ CREATE TABLE software (
     version TEXT,
     port INTEGER,
     cpe TEXT,
+    version_source TEXT NOT NULL DEFAULT 'network',
     detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     cve_checked_at TIMESTAMPTZ,
     last_check_method TEXT,

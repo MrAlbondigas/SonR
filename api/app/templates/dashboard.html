@@ -1009,7 +1009,7 @@
                 {{ v.cve_id }}{% if v.known_exploited %}<span class="exploit-tag">EXPLOIT CONOCIDO</span>{% endif %}
                 <span class="match-tag match-{{ v.match_type }}" title="{{ 'Coincidencia exacta por CPE contra el catalogo de NVD' if v.match_type == 'cpe' else 'Coincidencia aproximada por palabra clave (nombre + version) — sin CPE fiable disponible' }}">{{ 'CPE exacto' if v.match_type == 'cpe' else 'aprox.' }}</span>
               </td>
-              <td>{{ v.software.name }}</td>
+              <td>{{ v.software.name }}{% if v.software.version_source == 'authenticated' %}<span class="match-tag match-cpe" title="Version confirmada por SSH en el propio equipo, no solo detectada por red">verificado</span>{% endif %}</td>
               <td>{{ v.software.host.ip }}</td>
               <td class="num">{{ v.cvss or "—" }}</td>
               <td>{% if v.severity %}<span class="badge sev-{{ v.severity }}">{{ sev_labels.get(v.severity, v.severity) }}</span>{% else %}—{% endif %}</td>
@@ -1063,7 +1063,7 @@
                 {{ v.cve_id }}{% if v.known_exploited %}<span class="exploit-tag">EXPLOIT CONOCIDO</span>{% endif %}
                 <span class="match-tag match-{{ v.match_type }}" title="{{ 'Coincidencia exacta por CPE contra el catalogo de NVD' if v.match_type == 'cpe' else 'Coincidencia aproximada por palabra clave (nombre + version) — sin CPE fiable disponible' }}">{{ 'CPE exacto' if v.match_type == 'cpe' else 'aprox.' }}</span>
               </td>
-              <td>{{ v.software.name }}</td>
+              <td>{{ v.software.name }}{% if v.software.version_source == 'authenticated' %}<span class="match-tag match-cpe" title="Version confirmada por SSH en el propio equipo, no solo detectada por red">verificado</span>{% endif %}</td>
               <td>{{ v.software.host.ip }}</td>
               <td class="num">{{ v.cvss or "—" }}</td>
               <td>{% if v.severity %}<span class="badge sev-{{ v.severity }}">{{ sev_labels.get(v.severity, v.severity) }}</span>{% else %}—{% endif %}</td>

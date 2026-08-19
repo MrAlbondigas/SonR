@@ -61,6 +61,52 @@ def test_service_removed_only_after_three_consecutive_misses(client, scanner_hea
     assert removed["software_count"] == 0
 
 
+def test_authenticated_version_source_is_persisted(client, scanner_headers, db_session):
+    from app import models
+
+    ip = "10.99.0.20"
+    client.post(
+        "/scan/ingest",
+        headers=scanner_headers,
+        json={
+            "hosts": [
+                {
+                    "ip": ip,
+                    "software": [
+                        {
+                            "name": "OpenSSH",
+                            "version": "9.6p1-3ubuntu13.18",
+                            "port": 22,
+                            "cpe": "cpe:/a:openbsd:openssh:9.6p1",
+                            "version_source": "authenticated",
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    host = db_session.query(models.Host).filter(models.Host.ip == ip).first()
+    software = db_session.query(models.Software).filter(models.Software.host_id == host.id).first()
+    assert software.version_source == "authenticated"
+    assert software.version == "9.6p1-3ubuntu13.18"
+
+
+def test_version_source_defaults_to_network_when_not_specified(client, scanner_headers, db_session):
+    from app import models
+
+    ip = "10.99.0.21"
+    client.post(
+        "/scan/ingest",
+        headers=scanner_headers,
+        json={"hosts": [{"ip": ip, "software": [{"name": "nginx", "version": "1.25", "port": 80}]}]},
+    )
+
+    host = db_session.query(models.Host).filter(models.Host.ip == ip).first()
+    software = db_session.query(models.Software).filter(models.Software.host_id == host.id).first()
+    assert software.version_source == "network"
+
+
 def test_service_reappearing_resets_the_miss_counter(client, scanner_headers):
     ip = "10.99.0.4"
     with_service = {"hosts": [{"ip": ip, "software": [{"name": "telnet", "version": None, "port": 23}]}]}

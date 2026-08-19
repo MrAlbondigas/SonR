@@ -3,11 +3,31 @@ import subprocess
 import time
 import xml.etree.ElementTree as ET
 
+import paramiko
 import requests
 
 API_URL = os.environ.get("API_URL", "http://localhost:8000")
 API_KEY = os.environ["SCANNER_API_KEY"]
 SCAN_INTERVAL_SECONDS = int(os.environ.get("SCAN_INTERVAL_SECONDS", "300"))
+
+# nombre de servicio (tal como lo identifica nmap) -> paquete apt/dpkg equivalente,
+# para poder verificar la version EXACTA instalada por SSH en vez de fiarse solo del
+# banner de red. Coincidencia por substring, en minusculas.
+PACKAGE_NAME_MAP = {
+    "openssh": "openssh-server",
+    "apache httpd": "apache2",
+    "nginx": "nginx",
+    "mysql": "mysql-server",
+    "mariadb": "mariadb-server",
+    "postgresql": "postgresql",
+    "vsftpd": "vsftpd",
+    "proftpd": "proftpd-basic",
+    "lighttpd": "lighttpd",
+    "postfix": "postfix",
+    "dovecot": "dovecot-core",
+    "samba": "samba",
+    "bind": "bind9",
+}
 
 
 def local_subnet() -> str | None:
@@ -36,6 +56,91 @@ def discover_hosts(subnet: str, excluded_ips: set[str] | None = None) -> list[st
         if addr is not None:
             ips.append(addr.get("addr"))
     return ips
+
+
+def strip_dpkg_epoch(version: str) -> str:
+    """dpkg antepone opcionalmente un 'epoch:' (p.ej. '1:9.6p1-3ubuntu13.18') que es solo
+    numeracion interna del paquete, no parte de la version real del software — hay que
+    quitarlo antes de usar la version para construir un CPE o mostrarla."""
+    prefix, sep, rest = version.partition(":")
+    if sep and prefix.isdigit():
+        return rest
+    return version
+
+
+def guess_package_name(service_name: str) -> str | None:
+    name_l = service_name.lower()
+    for key, pkg in PACKAGE_NAME_MAP.items():
+        if key in name_l:
+            return pkg
+    return None
+
+
+def substitute_cpe_version(cpe22: str | None, new_version: str) -> str | None:
+    """Sustituye solo el componente de version de un CPE 2.2 de nmap
+    (cpe:/a:vendor:product:version) por una version verificada por SSH, conservando
+    vendor/product que nmap ya suele identificar correctamente."""
+    if not cpe22 or not cpe22.startswith("cpe:/"):
+        return None
+    parts = cpe22[len("cpe:/"):].split(":")
+    if len(parts) < 3:
+        return None
+    part, vendor, product = parts[0], parts[1], parts[2]
+    safe_version = new_version.split(" ")[0].split("-")[0].split("+")[0]
+    if not safe_version:
+        return None
+    return f"cpe:/{part}:{vendor}:{product}:{safe_version}"
+
+
+def verify_installed_version(ip: str, username: str, password: str, package: str) -> str | None:
+    """Se conecta por SSH y consulta la version EXACTA instalada de un paquete via dpkg
+    (operacion de solo lectura, sin privilegios). Devuelve None si falla la conexion o
+    si el paquete no esta instalado con ese nombre exacto."""
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        client.connect(ip, username=username, password=password, timeout=8, banner_timeout=8)
+        cmd = f"dpkg-query -W -f='${{Version}}' {package} 2>/dev/null"
+        _, stdout, _ = client.exec_command(cmd, timeout=10)
+        version = stdout.read().decode(errors="replace").strip()
+        return version or None
+    except Exception:
+        return None
+    finally:
+        client.close()
+
+
+def fetch_ssh_credentials() -> dict:
+    """Devuelve {ip: {username, password}} solo para equipos con credenciales SSH
+    guardadas explicitamente por un administrador — nunca se intenta con equipos sin
+    credenciales conocidas."""
+    try:
+        resp = requests.get(f"{API_URL}/ssh/credentials-for-scan", headers={"X-API-Key": API_KEY}, timeout=10)
+        resp.raise_for_status()
+        return {c["ip"]: c for c in resp.json() if c.get("ip")}
+    except Exception as exc:
+        print(f"No se pudieron obtener credenciales SSH para el escaneo autenticado: {exc}")
+        return {}
+
+
+def refine_with_authenticated_check(host_data: dict, cred: dict) -> None:
+    verified_count = 0
+    for sw in host_data["software"]:
+        package = guess_package_name(sw["name"])
+        if not package:
+            continue
+        verified_version = verify_installed_version(host_data["ip"], cred["username"], cred["password"], package)
+        if not verified_version:
+            continue
+        verified_version = strip_dpkg_epoch(verified_version)
+        sw["version"] = verified_version
+        sw["version_source"] = "authenticated"
+        new_cpe = substitute_cpe_version(sw.get("cpe"), verified_version)
+        if new_cpe:
+            sw["cpe"] = new_cpe
+        verified_count += 1
+    if verified_count:
+        print(f"{host_data['ip']}: {verified_count} version(es) verificada(s) por SSH")
 
 
 def scan_host(ip: str) -> dict:
@@ -74,7 +179,15 @@ def scan_host(ip: str) -> dict:
         name = service.get("product") or service.get("name") or "unknown"
         version = service.get("version")
         cpe = service.findtext("cpe")
-        software.append({"name": name, "version": version, "port": int(port.get("portid")), "cpe": cpe})
+        software.append(
+            {
+                "name": name,
+                "version": version,
+                "port": int(port.get("portid")),
+                "cpe": cpe,
+                "version_source": "network",
+            }
+        )
 
     return {
         "ip": ip,
@@ -97,6 +210,13 @@ def run_scan_cycle(excluded_ips: set[str] | None = None):
     print(f"{len(live_ips)} hosts activos encontrados")
 
     hosts_payload = [scan_host(ip) for ip in live_ips]
+
+    ssh_creds_by_ip = fetch_ssh_credentials()
+    if ssh_creds_by_ip:
+        for host_data in hosts_payload:
+            cred = ssh_creds_by_ip.get(host_data["ip"])
+            if cred:
+                refine_with_authenticated_check(host_data, cred)
 
     resp = requests.post(
         f"{API_URL}/scan/ingest",

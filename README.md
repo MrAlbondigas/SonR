@@ -50,9 +50,19 @@ un CPE fiable (banner genérico, versión ambigua o desconocida), se recurre a b
 (nombre + versión) como respaldo, menos precisa. Cada CVE mostrado en el dashboard indica cuál de los dos
 métodos se usó (`CPE exacto` / `aprox.`), para que la confianza del hallazgo sea transparente en vez de implícita.
 
+## Escaneo autenticado
+
+Para equipos donde un administrador ha guardado credenciales SSH (las mismas que usa el parcheo automático), el
+escáner ya no se conforma con el banner de red: se conecta por SSH y consulta con `dpkg-query` la versión EXACTA
+instalada del paquete (operación de solo lectura, sin privilegios). Esa versión verificada sustituye a la que
+adivinó nmap, y se usa también para corregir el componente de versión del CPE — conservando el vendor/producto
+que nmap ya suele identificar bien — lo que a su vez mejora la precisión del cruce con NVD descrito arriba. Cada
+hallazgo indica si su versión viene de "red" (fingerprinting) o está "verificado" (confirmado por SSH en el
+propio equipo). Solo se intenta en equipos con credenciales guardadas explícitamente; nunca por defecto.
+
 ## Limitaciones conocidas
 
 - La detección de credenciales por defecto usa una lista corta (~10 pares) de credenciales muy conocidas, no un diccionario de fuerza bruta — pensado para ser rápido y respetuoso con los dispositivos de la red, no exhaustivo.
 - Las "rutas de ataque" asumen red plana (sin VLANs/segmentación) ya que no se detecta topología de red más allá de la subred local.
-- No hay escaneo autenticado (login remoto para comprobar versiones exactas de paquetes instalados) más allá del parcheo por SSH ya implementado — el descubrimiento de software sigue siendo por fingerprinting de red (banners, puertos), no por inventario de paquetes.
+- El escaneo autenticado verifica la versión de servicios que nmap ya detectó en la red (vía `dpkg-query`); no hace un inventario completo de todos los paquetes instalados en el sistema, solo de los que corresponden a servicios expuestos.
 - Ningún hallazgo de vulnerabilidad se verifica activamente explotándolo — el sistema reporta coincidencias contra bases de datos públicas (NVD, CISA KEV), no confirmación de explotabilidad real.
