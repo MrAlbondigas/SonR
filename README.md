@@ -10,7 +10,7 @@ Plataforma de gestión de vulnerabilidades para la red local: descubre equipos, 
 - **api** — FastAPI, expone endpoints de consulta, autenticación con roles (admin/viewer) y recibe los resultados del escáner.
 - **scanner** — Python + nmap, descubre equipos en la red local (`network_mode: host`) y envía los resultados a la API.
 - **enricher** — cruza cada software detectado con la API de NVD (CVEs) y el catálogo CISA KEV (exploits activamente explotados).
-- **credcheck** — prueba una lista corta de credenciales por defecto muy conocidas contra SSH/FTP/HTTP Basic Auth expuestos.
+- **credcheck** — prueba credenciales por defecto muy conocidas y documentadas contra SSH/FTP/Telnet/HTTP Basic Auth expuestos, priorizando las específicas del fabricante detectado (por MAC) antes que la lista genérica.
 - **reporter** — genera un reporte PDF semanal (top prioridades, rutas de ataque, credenciales encontradas, timeline) descargable desde el dashboard.
 - **dashboard** — servido por la propia API (plantillas Jinja2), muestra inventario, prioridades, rutas de ataque y timeline en tiempo real.
 
@@ -60,9 +60,20 @@ que nmap ya suele identificar bien — lo que a su vez mejora la precisión del 
 hallazgo indica si su versión viene de "red" (fingerprinting) o está "verificado" (confirmado por SSH en el
 propio equipo). Solo se intenta en equipos con credenciales guardadas explícitamente; nunca por defecto.
 
+## Credenciales por defecto
+
+La lista genérica (~23 pares muy documentados en el sector) se complementa con credenciales específicas por
+fabricante — Ubiquiti, Hikvision, Dahua, D-Link, Netgear, TP-Link, Cisco, MikroTik, etc. — que se prueban
+primero cuando el fingerprinting por MAC ya identificó el fabricante del equipo, igual que haría un atacante
+real que reconoce el dispositivo antes de improvisar. Sigue sin ser un diccionario de fuerza bruta: es una
+lista curada y acotada, pensada para ser rápida y respetuosa con los dispositivos de la red. También se
+añadió Telnet (puerto 23) — el vector clásico de credenciales por defecto en routers/cámaras/DVRs baratos
+(el mismo que explotó la botnet Mirai) — aunque, a diferencia de SSH/FTP, Telnet no tiene una señal formal de
+éxito/fallo en el protocolo, así que esa comprobación es heurística (reconoce patrones de prompt típicos) y
+por tanto algo menos fiable por naturaleza del propio protocolo, no por una limitación de la implementación.
+
 ## Limitaciones conocidas
 
-- La detección de credenciales por defecto usa una lista corta (~10 pares) de credenciales muy conocidas, no un diccionario de fuerza bruta — pensado para ser rápido y respetuoso con los dispositivos de la red, no exhaustivo.
 - Las "rutas de ataque" asumen red plana (sin VLANs/segmentación) ya que no se detecta topología de red más allá de la subred local.
 - El escaneo autenticado verifica la versión de servicios que nmap ya detectó en la red (vía `dpkg-query`); no hace un inventario completo de todos los paquetes instalados en el sistema, solo de los que corresponden a servicios expuestos.
 - Ningún hallazgo de vulnerabilidad se verifica activamente explotándolo — el sistema reporta coincidencias contra bases de datos públicas (NVD, CISA KEV), no confirmación de explotabilidad real.

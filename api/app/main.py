@@ -584,10 +584,12 @@ def list_targets(db: Session = Depends(get_db)):
         services = [
             {"port": s.port, "name": s.name}
             for s in h.software
-            if s.port in (21, 22, 80, 8080) and s.port not in already_cracked_ports
+            if s.removed_at is None
+            and s.port in (21, 22, 23, 80, 8080)
+            and s.port not in already_cracked_ports
         ]
         if services:
-            result.append({"host_id": h.id, "ip": h.ip, "services": services})
+            result.append({"host_id": h.id, "ip": h.ip, "vendor": h.vendor, "services": services})
     return result
 
 

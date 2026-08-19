@@ -3,6 +3,6 @@ FROM python:3.12-slim
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY credcheck.py .
+COPY credcheck.py conftest.py test_credcheck.py .
 
 CMD ["python", "-u", "credcheck.py"]
