@@ -1178,6 +1178,179 @@ def patch_vulnerability(
     return {"ok": True, "success": success, "command": command, "output": output}
 
 
+# --- Verificacion de exploits (PoC) — SOLO en equipos marcados explicitamente como
+# "de practicas" por un administrador. Nunca se ejecuta nada por defecto. Cada
+# comprobacion es real (conexion de red de verdad, no simulada) pero deliberadamente
+# no destructiva: o bien reintenta un login ya encontrado (prueba de acceso real), o
+# bien vuelve a leer una cabecera de servicio sin modificar nada (confirmacion pasiva).
+
+
+def verify_ssh_credential(ip: str, port: int, username: str, password: str) -> tuple[bool, str]:
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        client.connect(
+            ip, port=port, username=username, password=password,
+            timeout=8, banner_timeout=8, auth_timeout=8, look_for_keys=False, allow_agent=False,
+        )
+        return True, "Conexion SSH aceptada con las credenciales indicadas: el acceso sigue siendo real."
+    except paramiko.AuthenticationException:
+        return False, "Autenticacion rechazada: estas credenciales ya no dan acceso."
+    except Exception as exc:
+        return False, f"No se pudo conectar: {exc}"
+    finally:
+        client.close()
+
+
+def verify_ftp_credential(ip: str, port: int, username: str, password: str) -> tuple[bool, str]:
+    import ftplib
+
+    try:
+        ftp = ftplib.FTP()
+        ftp.connect(ip, port, timeout=8)
+        ftp.login(username, password)
+        ftp.quit()
+        return True, "Login FTP aceptado con las credenciales indicadas: el acceso sigue siendo real."
+    except ftplib.error_perm:
+        return False, "Autenticacion rechazada: estas credenciales ya no dan acceso."
+    except Exception as exc:
+        return False, f"No se pudo conectar: {exc}"
+
+
+def verify_http_basic_credential(ip: str, port: int, username: str, password: str) -> tuple[bool, str]:
+    url = f"http://{ip}:{port}/"
+    try:
+        resp = requests.get(url, auth=(username, password), timeout=8)
+    except Exception as exc:
+        return False, f"No se pudo conectar: {exc}"
+    if resp.status_code == 200:
+        return True, "El servidor acepto las credenciales (HTTP 200): el acceso sigue siendo real."
+    return False, f"El servidor respondio {resp.status_code}: estas credenciales ya no dan acceso."
+
+
+def verify_http_banner(ip: str, port: int, expected_name: str, expected_version: str | None) -> tuple[bool, str]:
+    """Confirmacion PASIVA, no un exploit activo: vuelve a pedir la pagina y comprueba si
+    la cabecera Server u otra respuesta siguen anunciando la misma version potencialmente
+    vulnerable. No demuestra que el fallo sea explotable, solo que la version vulnerable
+    detectada sigue expuesta tal cual, sin modificar ni acceder a nada en el objetivo."""
+    url = f"http://{ip}:{port}/"
+    try:
+        resp = requests.get(url, timeout=8)
+    except Exception as exc:
+        return False, f"No se pudo conectar: {exc}"
+    server_header = resp.headers.get("Server", "")
+    haystack = f"{server_header} {resp.text[:500]}".lower()
+    needle = expected_name.lower()
+    if needle in haystack and (not expected_version or expected_version.split(" ")[0].lower() in haystack):
+        return True, f"El servicio sigue respondiendo como '{server_header or expected_name}': version potencialmente vulnerable confirmada en vivo."
+    return False, f"La huella del servicio ya no coincide (Server: '{server_header}'): probablemente ya no vulnerable o ha cambiado."
+
+
+@app.post("/hosts/{host_id}/practice-target")
+def set_practice_target(
+    host_id: int,
+    payload: schemas.PracticeTargetUpdate,
+    db: Session = Depends(get_db),
+    admin: models.User = Depends(auth.require_admin),
+):
+    host = db.query(models.Host).filter(models.Host.id == host_id).first()
+    if not host:
+        raise HTTPException(status_code=404, detail="Host not found")
+    host.is_practice_target = payload.is_practice_target
+    db.commit()
+    return {"ok": True, "is_practice_target": host.is_practice_target}
+
+
+@app.post("/credentials/{finding_id}/verify")
+def verify_credential_finding(
+    finding_id: int, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)
+):
+    finding = db.query(models.CredentialFinding).filter(models.CredentialFinding.id == finding_id).first()
+    if not finding:
+        raise HTTPException(status_code=404, detail="Credential finding not found")
+    host = finding.host
+    if not host.is_practice_target:
+        raise HTTPException(
+            status_code=403,
+            detail="Este equipo no esta marcado como 'de practicas'. Marca el equipo antes de verificar.",
+        )
+
+    service_l = finding.service.lower()
+    if "ssh" in service_l:
+        success, detail = verify_ssh_credential(host.ip, finding.port, finding.username, finding.password)
+    elif "ftp" in service_l:
+        success, detail = verify_ftp_credential(host.ip, finding.port, finding.username, finding.password)
+    elif "telnet" in service_l:
+        success, detail = False, "La reverificacion automatica de telnet aun no esta soportada; compruebalo manualmente."
+    else:
+        success, detail = verify_http_basic_credential(host.ip, finding.port, finding.username, finding.password)
+
+    db.add(
+        models.PocAttempt(
+            host_id=host.id,
+            credential_finding_id=finding.id,
+            poc_type="credential",
+            success=success,
+            detail=detail,
+            executed_by=admin.username,
+        )
+    )
+    db.commit()
+    return {"ok": True, "success": success, "detail": detail}
+
+
+@app.post("/vulnerabilities/{vuln_id}/verify-poc")
+def verify_vulnerability_poc(
+    vuln_id: int, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)
+):
+    vuln = db.query(models.Vulnerability).filter(models.Vulnerability.id == vuln_id).first()
+    if not vuln:
+        raise HTTPException(status_code=404, detail="Vulnerability not found")
+    software = vuln.software
+    host = software.host
+    if not host.is_practice_target:
+        raise HTTPException(
+            status_code=403,
+            detail="Este equipo no esta marcado como 'de practicas'. Marca el equipo antes de verificar.",
+        )
+    if not software.port:
+        raise HTTPException(
+            status_code=400, detail="Este software no tiene un puerto de red asociado, no se puede verificar."
+        )
+
+    success, detail = verify_http_banner(host.ip, software.port, software.name, software.version)
+
+    db.add(
+        models.PocAttempt(
+            host_id=host.id,
+            vulnerability_id=vuln.id,
+            poc_type="http_banner",
+            success=success,
+            detail=detail,
+            executed_by=admin.username,
+        )
+    )
+    db.commit()
+    return {"ok": True, "success": success, "detail": detail}
+
+
+@app.get("/poc/log")
+def get_poc_log(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
+    rows = db.query(models.PocAttempt).order_by(models.PocAttempt.id.desc()).limit(30).all()
+    return [
+        {
+            "id": r.id,
+            "host_ip": r.host.ip if r.host else None,
+            "poc_type": r.poc_type,
+            "success": r.success,
+            "detail": r.detail,
+            "executed_at": r.executed_at,
+            "executed_by": r.executed_by,
+        }
+        for r in rows
+    ]
+
+
 # --- Reportes ---
 
 
@@ -1443,6 +1616,16 @@ def dashboard(
 
     device_types = {h.id: classify_device(h) for h in hosts}
 
+    # --- Verificacion de exploits (PoC) ---
+    credential_findings = (
+        db.query(models.CredentialFinding).order_by(models.CredentialFinding.found_at.desc()).all()
+    )
+    poc_log = db.query(models.PocAttempt).order_by(models.PocAttempt.id.desc()).limit(20).all()
+    practice_target_count = sum(1 for h in hosts if h.is_practice_target)
+    verifiable_vulns = [
+        v for v in open_vulns_sorted if v.software.host.is_practice_target and v.software.port
+    ]
+
     # --- Riesgo y tendencia ---
     host_risks = sorted((compute_host_risk(h) for h in hosts), key=lambda r: r["score"], reverse=True)
     host_risk_by_id = {r["host_id"]: r for r in host_risks}
@@ -1572,6 +1755,10 @@ def dashboard(
             "ssh_hosts": ssh_hosts,
             "patchable_host_ids": patchable_host_ids,
             "patch_log": patch_log,
+            "credential_findings": credential_findings,
+            "poc_log": poc_log,
+            "practice_target_count": practice_target_count,
+            "verifiable_vulns": verifiable_vulns,
             "security_grade": security_grade,
             "device_types": device_types,
         },

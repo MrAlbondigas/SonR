@@ -590,6 +590,11 @@
           <span class="label-text">Parcheo</span>
           <span class="count">{{ ssh_hosts|length }}</span>
         </a>
+        <a class="nav-item" data-view="poc" title="Verificación PoC">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L4 7 V12 C4 17 7.5 20.5 12 21.5 C16.5 20.5 20 17 20 12 V7 Z"/><path d="M9 12 L11 14 L15.5 9"/></svg></span>
+          <span class="label-text">Verificación PoC</span>
+          <span class="count">{{ practice_target_count }}</span>
+        </a>
         <a class="nav-item" data-view="demo" title="Demo">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3 h6 M10 3 v6.2 L4.6 18.4 A2 2 0 0 0 6.4 21.4 H17.6 A2 2 0 0 0 19.4 18.4 L14 9.2 V3"/><path d="M6.5 15 h11"/></svg></span>
           <span class="label-text">Demo</span>
@@ -906,6 +911,113 @@
             </tr>
             {% else %}
             <tr><td colspan="4" class="muted">Todavía no se ha aplicado ningún parche.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- Verificación PoC -->
+    <div class="view" data-view="poc">
+      <h1>Verificación de exploits (PoC)</h1>
+      <p class="empty-state" style="margin: 0 0 1.2rem;">
+        Comprobaciones reales (conexión de red de verdad, no simuladas) pero deliberadamente no destructivas —
+        reintentan un acceso ya encontrado o vuelven a leer una cabecera sin modificar nada. Solo funcionan en
+        equipos marcados explícitamente como <strong>"de prácticas"</strong>: nunca se ejecuta nada por defecto
+        contra un equipo real de la red.
+      </p>
+
+      <section>
+        <h2>Equipos de prácticas</h2>
+        <div class="table-wrap">
+        <table>
+          <thead><tr><th>Equipo</th><th>Fabricante</th><th>¿De prácticas?</th></tr></thead>
+          <tbody>
+            {% for h in hosts %}
+            <tr>
+              <td>{{ h.ip }}{% if h.hostname %} <span class="muted">({{ h.hostname }})</span>{% endif %}</td>
+              <td class="muted">{{ h.vendor or "—" }}</td>
+              <td>
+                <label class="policy-toggle" style="margin: 0;">
+                  <input type="checkbox" onchange="togglePracticeTarget({{ h.id }}, this.checked)" {{ 'checked' if h.is_practice_target else '' }}>
+                  {{ 'Sí' if h.is_practice_target else 'No' }}
+                </label>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="muted">Todavía no hay equipos escaneados.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </section>
+
+      <section>
+        <h2>Credenciales encontradas</h2>
+        <div class="table-wrap">
+        <table>
+          <thead><tr><th>Equipo</th><th>Servicio</th><th>Usuario / Contraseña</th><th>Encontrado</th><th>Verificación</th></tr></thead>
+          <tbody>
+            {% for c in credential_findings %}
+            <tr>
+              <td>{{ c.host.ip }}</td>
+              <td>{{ c.service }} ({{ c.port }})</td>
+              <td class="muted" style="font-family: var(--font-mono);">{{ c.username }}/{{ c.password }}</td>
+              <td class="muted num">{{ c.found_at }}</td>
+              <td>
+                {% if c.host.is_practice_target %}
+                <button class="btn-patch" onclick="verifyCredential({{ c.id }}, this)">Verificar ahora</button>
+                {% else %}
+                <span class="muted" style="font-size: 0.74rem;">marca el equipo como "de prácticas"</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="muted">No hay credenciales por defecto encontradas.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </section>
+
+      <section>
+        <h2>Vulnerabilidades verificables (equipos de prácticas)</h2>
+        <div class="table-wrap">
+        <table>
+          <thead><tr><th>CVE</th><th>Software</th><th>Equipo</th><th>Verificación</th></tr></thead>
+          <tbody>
+            {% for v in verifiable_vulns %}
+            <tr>
+              <td>{{ v.cve_id }}</td>
+              <td>{{ v.software.name }}</td>
+              <td>{{ v.software.host.ip }}</td>
+              <td><button class="btn-patch" onclick="verifyPoc({{ v.id }}, this)">Verificar banner</button></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="muted">No hay vulnerabilidades verificables — marca un equipo como "de prácticas" y comprueba que tenga vulnerabilidades abiertas en un puerto web.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </section>
+
+      <section>
+        <h2>Registro de verificaciones</h2>
+        <div class="table-wrap">
+        <table>
+          <thead><tr><th>Fecha</th><th>Equipo</th><th>Tipo</th><th>Resultado</th><th>Detalle</th></tr></thead>
+          <tbody>
+            {% for p in poc_log %}
+            <tr>
+              <td class="num muted">{{ p.executed_at }}</td>
+              <td>{{ p.host.ip if p.host else "—" }}</td>
+              <td>{{ 'Credencial' if p.poc_type == 'credential' else 'Cabecera HTTP' }}</td>
+              <td><span class="badge {{ 'count' if p.success else 'sev-critical' }}">{{ 'Confirmado' if p.success else 'No confirmado' }}</span></td>
+              <td class="muted">{{ p.detail }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="muted">Todavía no se ha lanzado ninguna verificación.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -1523,6 +1635,71 @@
       location.reload();
     } catch (err) {
       alert("No se pudieron quitar las credenciales.");
+    }
+  }
+
+  // --- Verificacion de exploits (PoC) ---
+  async function togglePracticeTarget(hostId, checked) {
+    try {
+      const resp = await fetch("/hosts/" + hostId + "/practice-target", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_practice_target: checked }),
+      });
+      if (!resp.ok) throw new Error("failed");
+      location.hash = "poc";
+      location.reload();
+    } catch (err) {
+      alert("No se pudo actualizar el equipo.");
+      location.reload();
+    }
+  }
+
+  async function verifyCredential(findingId, btnEl) {
+    if (!confirm("Esto va a intentar iniciar sesion de verdad con estas credenciales contra el equipo. Continuar?")) return;
+    btnEl.disabled = true;
+    const original = btnEl.textContent;
+    btnEl.textContent = "Verificando...";
+    try {
+      const resp = await fetch("/credentials/" + findingId + "/verify", { method: "POST" });
+      const data = await resp.json();
+      if (!resp.ok) {
+        alert("No se pudo verificar: " + (data.detail || "error desconocido"));
+        btnEl.disabled = false;
+        btnEl.textContent = original;
+        return;
+      }
+      alert((data.success ? "CONFIRMADO: " : "No confirmado: ") + data.detail);
+      location.hash = "poc";
+      location.reload();
+    } catch (err) {
+      alert("No se pudo contactar con el servidor.");
+      btnEl.disabled = false;
+      btnEl.textContent = original;
+    }
+  }
+
+  async function verifyPoc(vulnId, btnEl) {
+    if (!confirm("Esto va a conectarse de verdad al equipo para comprobar si el servicio sigue anunciando la version vulnerable. Continuar?")) return;
+    btnEl.disabled = true;
+    const original = btnEl.textContent;
+    btnEl.textContent = "Verificando...";
+    try {
+      const resp = await fetch("/vulnerabilities/" + vulnId + "/verify-poc", { method: "POST" });
+      const data = await resp.json();
+      if (!resp.ok) {
+        alert("No se pudo verificar: " + (data.detail || "error desconocido"));
+        btnEl.disabled = false;
+        btnEl.textContent = original;
+        return;
+      }
+      alert((data.success ? "CONFIRMADO: " : "No confirmado: ") + data.detail);
+      location.hash = "poc";
+      location.reload();
+    } catch (err) {
+      alert("No se pudo contactar con el servidor.");
+      btnEl.disabled = false;
+      btnEl.textContent = original;
     }
   }
 

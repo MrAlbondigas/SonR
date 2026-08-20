@@ -34,6 +34,7 @@ class Host(Base):
     vendor = Column(Text)
     hostname = Column(Text)
     os_guess = Column(Text)
+    is_practice_target = Column(Boolean, nullable=False, default=False)
     first_seen = Column(TIMESTAMP(timezone=True), server_default=func.now())
     last_seen = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
@@ -115,6 +116,22 @@ class PatchLog(Base):
     command = Column(Text, nullable=False)
     success = Column(Boolean, nullable=False)
     output = Column(Text)
+    executed_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    executed_by = Column(Text)
+
+    host = relationship("Host")
+
+
+class PocAttempt(Base):
+    __tablename__ = "poc_attempts"
+
+    id = Column(Integer, primary_key=True)
+    host_id = Column(Integer, ForeignKey("hosts.id", ondelete="CASCADE"))
+    credential_finding_id = Column(Integer, ForeignKey("credential_findings.id", ondelete="SET NULL"))
+    vulnerability_id = Column(Integer, ForeignKey("vulnerabilities.id", ondelete="SET NULL"))
+    poc_type = Column(Text, nullable=False)
+    success = Column(Boolean, nullable=False)
+    detail = Column(Text)
     executed_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     executed_by = Column(Text)
 

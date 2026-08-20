@@ -21,6 +21,7 @@ CREATE TABLE hosts (
     vendor TEXT,
     hostname TEXT,
     os_guess TEXT,
+    is_practice_target BOOLEAN NOT NULL DEFAULT false,
     first_seen TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_seen TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -134,6 +135,18 @@ CREATE TABLE patch_log (
     command TEXT NOT NULL,
     success BOOLEAN NOT NULL,
     output TEXT,
+    executed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    executed_by TEXT
+);
+
+CREATE TABLE poc_attempts (
+    id SERIAL PRIMARY KEY,
+    host_id INTEGER REFERENCES hosts(id) ON DELETE CASCADE,
+    credential_finding_id INTEGER REFERENCES credential_findings(id) ON DELETE SET NULL,
+    vulnerability_id INTEGER REFERENCES vulnerabilities(id) ON DELETE SET NULL,
+    poc_type TEXT NOT NULL,
+    success BOOLEAN NOT NULL,
+    detail TEXT,
     executed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     executed_by TEXT
 );

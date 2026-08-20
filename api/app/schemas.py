@@ -59,6 +59,10 @@ class SSHCredentialIn(BaseModel):
     password: str
 
 
+class PracticeTargetUpdate(BaseModel):
+    is_practice_target: bool
+
+
 class ScanPolicyUpdate(BaseModel):
     enabled: bool
     interval_seconds: int
