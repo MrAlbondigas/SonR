@@ -576,6 +576,11 @@
           <span class="label-text">Timeline</span>
         </a>
 
+        <a class="nav-item" data-view="grupos" title="Grupos">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="7" height="7" rx="1.2"/><rect x="14" y="4" width="7" height="7" rx="1.2"/><rect x="3" y="15" width="7" height="7" rx="1.2"/><rect x="14" y="15" width="7" height="7" rx="1.2"/></svg></span>
+          <span class="label-text">Grupos</span><span class="count">{{ group_rows|length }}</span>
+        </a>
+
         <div class="nav-group-label label-text">Análisis</div>
         <a class="nav-item" data-view="tendencia" title="Tendencia">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17 L9.5 10 L14 14.5 L21 6"/><path d="M15 6 H21 V12"/></svg></span>
@@ -1080,7 +1085,7 @@
         <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>Tipo</th><th>IP</th><th>Hostname</th><th>MAC</th><th>Fabricante</th><th>SO estimado</th><th>Software</th><th>Riesgo</th><th>Última vez visto</th></tr>
+            <tr><th>Tipo</th><th>IP</th><th>Hostname</th><th>MAC</th><th>Fabricante</th><th>SO estimado</th><th>Software</th><th>Riesgo</th><th>Etiquetas</th><th>Última vez visto</th></tr>
           </thead>
           <tbody>
             {% for h in hosts %}
@@ -1116,10 +1121,51 @@
               <td>{{ h.os_guess or "—" }}</td>
               <td><span class="badge count">{{ h.software|rejectattr('removed_at')|list|length }}</span></td>
               <td><span class="badge" style="background: color-mix(in srgb, {{ risk.level_color }} 15%, transparent); color: {{ risk.level_color }};">{{ risk.level_label }} · {{ risk.score }}</span></td>
+              <td>
+                {% for tag in host_tags_by_id[h.id] %}<span class="badge count">{{ tag }}</span>{% endfor %}
+                {% if is_admin %}
+                <div style="margin-top:0.3rem; white-space:nowrap;">
+                  <input type="text" class="ssh-cred-input" style="width:120px;" id="tags-input-{{ h.id }}" placeholder="prod, red-interna" value="{{ host_tags_by_id[h.id]|join(', ') }}">
+                  <button class="btn-patch" onclick="saveHostTags({{ h.id }})">Guardar</button>
+                </div>
+                {% endif %}
+              </td>
               <td class="muted num">{{ h.last_seen }}</td>
             </tr>
             {% else %}
-            <tr><td colspan="9" class="muted">Todavía no hay escaneos. El escáner corre cada pocos minutos.</td></tr>
+            <tr><td colspan="10" class="muted">Todavía no hay escaneos. El escáner corre cada pocos minutos.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- Grupos -->
+    <div class="view" data-view="grupos">
+      <h1>Riesgo por grupo</h1>
+      <p class="empty-state" style="margin: 0 0 1.2rem;">
+        Etiqueta equipos desde el Inventario (por ejemplo "producción", "finanzas", "sede-madrid") para ver el
+        riesgo agrupado por unidad de negocio, entorno o ubicación — un equipo puede tener varias etiquetas.
+      </p>
+      <section>
+        <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Etiqueta</th><th>Equipos</th><th>Puntuación total</th><th>Puntuación media</th><th>Vulnerabilidades abiertas</th><th>Credenciales encontradas</th></tr>
+          </thead>
+          <tbody>
+            {% for g in group_rows %}
+            <tr>
+              <td><span class="badge count">{{ g.tag }}</span></td>
+              <td class="num">{{ g.host_count }}</td>
+              <td class="num">{{ g.total_score }}</td>
+              <td class="num">{{ g.avg_score }}</td>
+              <td class="num">{{ g.open_vulns }}</td>
+              <td class="num">{{ g.credential_findings }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="muted">Todavía no hay equipos etiquetados. Añade etiquetas desde el Inventario.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -1816,6 +1862,23 @@
     } catch (err) {
       alert("No se pudo actualizar el equipo.");
       location.reload();
+    }
+  }
+
+  async function saveHostTags(hostId) {
+    const input = document.getElementById("tags-input-" + hostId);
+    const tags = input.value.split(",").map((s) => s.trim()).filter(Boolean);
+    try {
+      const resp = await fetch("/hosts/" + hostId + "/tags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tags: tags }),
+      });
+      if (!resp.ok) throw new Error("failed");
+      location.hash = "inventario";
+      location.reload();
+    } catch (err) {
+      alert("No se pudieron guardar las etiquetas.");
     }
   }
 

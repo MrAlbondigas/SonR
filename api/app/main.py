@@ -1392,6 +1392,72 @@ def set_practice_target(
     return {"ok": True, "is_practice_target": host.is_practice_target}
 
 
+# --- Etiquetas de equipos (agrupacion por unidad de negocio / entorno) ---
+
+MAX_TAGS_PER_HOST = 10
+MAX_TAG_LENGTH = 40
+
+
+def normalize_tags(raw_tags: list[str]) -> list[str]:
+    seen: list[str] = []
+    for t in raw_tags:
+        clean = t.strip()[:MAX_TAG_LENGTH]
+        if clean and clean not in seen:
+            seen.append(clean)
+        if len(seen) >= MAX_TAGS_PER_HOST:
+            break
+    return seen
+
+
+@app.post("/hosts/{host_id}/tags")
+def set_host_tags(
+    host_id: int,
+    payload: schemas.HostTagsUpdate,
+    db: Session = Depends(get_db),
+    admin: models.User = Depends(auth.require_admin),
+):
+    host = db.query(models.Host).filter(models.Host.id == host_id).first()
+    if not host:
+        raise HTTPException(status_code=404, detail="Host not found")
+
+    clean_tags = normalize_tags(payload.tags)
+    db.query(models.HostTag).filter(models.HostTag.host_id == host_id).delete()
+    for tag in clean_tags:
+        db.add(models.HostTag(host_id=host_id, tag=tag))
+    db.commit()
+    return {"ok": True, "tags": clean_tags}
+
+
+def compute_tag_groups(hosts: list[models.Host]) -> list[dict]:
+    groups: dict[str, list[dict]] = {}
+    for host in hosts:
+        if not host.tags:
+            continue
+        risk = compute_host_risk(host)
+        for host_tag in host.tags:
+            groups.setdefault(host_tag.tag, []).append(risk)
+
+    result = [
+        {
+            "tag": tag,
+            "host_count": len(risks),
+            "total_score": sum(r["score"] for r in risks),
+            "avg_score": round(sum(r["score"] for r in risks) / len(risks)),
+            "open_vulns": sum(r["open_vulns"] for r in risks),
+            "credential_findings": sum(r["credential_findings"] for r in risks),
+        }
+        for tag, risks in groups.items()
+    ]
+    result.sort(key=lambda g: g["total_score"], reverse=True)
+    return result
+
+
+@app.get("/tags")
+def list_tag_groups(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
+    hosts = db.query(models.Host).order_by(models.Host.ip).all()
+    return compute_tag_groups(hosts)
+
+
 @app.post("/credentials/{finding_id}/verify")
 def verify_credential_finding(
     finding_id: int, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)
@@ -1828,6 +1894,10 @@ def dashboard(
 
     device_types = {h.id: classify_device(h) for h in hosts}
 
+    # --- Etiquetas / grupos ---
+    host_tags_by_id = {h.id: sorted(t.tag for t in h.tags) for h in hosts}
+    group_rows = compute_tag_groups(hosts)
+
     # --- Verificacion de exploits (PoC) ---
     credential_findings = (
         db.query(models.CredentialFinding).order_by(models.CredentialFinding.found_at.desc()).all()
@@ -1977,6 +2047,8 @@ def dashboard(
             "sla_policy": sla_policy,
             "overdue_vulns": overdue_vulns,
             "due_soon_vulns": due_soon_vulns,
+            "host_tags_by_id": host_tags_by_id,
+            "group_rows": group_rows,
         },
     )
 

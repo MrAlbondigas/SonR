@@ -76,3 +76,7 @@ class SlaPolicyUpdate(BaseModel):
     high_days: int
     medium_days: int
     low_days: int
+
+
+class HostTagsUpdate(BaseModel):
+    tags: list[str]

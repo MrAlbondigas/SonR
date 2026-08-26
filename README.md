@@ -40,7 +40,8 @@ base de datos SQLite aislada — nunca tocan los datos reales de Postgres.
 - [x] Fase 2: cruce con CVEs (NVD), verificación de exploits públicos (CISA KEV), timeline de cambios, priorización top-5
 - [x] Fase 3: credenciales por defecto (SSH/FTP/HTTP Basic), fingerprinting de fabricante por MAC, rutas de ataque
 - [x] Fase 4: reportes PDF programados (semanal). Asistente de chat pendiente — necesita una API key de Anthropic propia del proyecto (no incluida por decisión del alumno)
-- [x] Fase 5: cruce exacto por CPE contra NVD, escaneo autenticado por SSH, lista de credenciales por defecto ampliada, verificación no destructiva de PoC en equipos de prácticas, plazos de remediación (SLA) por severidad, alertas por email además de webhook
+- [x] Fase 5: cruce exacto por CPE contra NVD, escaneo autenticado por SSH, lista de credenciales por defecto ampliada, verificación no destructiva de PoC en equipos de prácticas, plazos de remediación (SLA) por severidad, alertas por email además de webhook, cifrado en reposo de credenciales guardadas
+- [x] Fase 6: etiquetado de equipos y riesgo agregado por grupo (unidad de negocio, entorno, ubicación)
 
 ## Precisión del cruce con NVD
 
@@ -96,6 +97,14 @@ Además del webhook saliente (Discord/Slack), las mismas alertas (vulnerabilidad
 credenciales por defecto encontradas, parche aplicado, cuenta bloqueada) pueden enviarse por email vía SMTP.
 Ambos canales son independientes y opcionales; cada intento de envío queda registrado en el historial de
 alertas con su canal y resultado, se haya entregado o no.
+
+## Grupos y etiquetas
+
+Un administrador puede etiquetar cada equipo (por ejemplo "producción", "finanzas", "sede-madrid" — un equipo
+puede tener varias) desde el Inventario. La vista de Grupos agrega el riesgo (puntuación total y media,
+vulnerabilidades abiertas, credenciales encontradas) por etiqueta, para poder responder preguntas como "¿cuál
+es el riesgo de los equipos de producción?" sin tener que revisar equipo por equipo — el tipo de vista que
+esperaría un responsable de una unidad de negocio, no solo el equipo técnico.
 
 ## Limitaciones conocidas
 

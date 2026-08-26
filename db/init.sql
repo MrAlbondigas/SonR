@@ -173,7 +173,16 @@ CREATE TABLE sla_policy (
     updated_by TEXT
 );
 
+CREATE TABLE host_tags (
+    id SERIAL PRIMARY KEY,
+    host_id INTEGER NOT NULL REFERENCES hosts(id) ON DELETE CASCADE,
+    tag TEXT NOT NULL,
+    UNIQUE (host_id, tag)
+);
+
 CREATE INDEX idx_software_host ON software(host_id);
+CREATE INDEX idx_host_tags_host ON host_tags(host_id);
+CREATE INDEX idx_host_tags_tag ON host_tags(tag);
 CREATE INDEX idx_vuln_sla_due ON vulnerabilities(sla_due_at) WHERE resolved_at IS NULL;
 CREATE INDEX idx_vuln_software ON vulnerabilities(software_id);
 CREATE INDEX idx_events_occurred ON events(occurred_at DESC);

@@ -43,6 +43,7 @@ class Host(Base):
     credential_findings = relationship(
         "CredentialFinding", back_populates="host", cascade="all, delete-orphan"
     )
+    tags = relationship("HostTag", back_populates="host", cascade="all, delete-orphan")
 
 
 class Scan(Base):
@@ -162,6 +163,16 @@ class SlaPolicy(Base):
     low_days = Column(Integer, nullable=False, default=180)
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     updated_by = Column(Text)
+
+
+class HostTag(Base):
+    __tablename__ = "host_tags"
+
+    id = Column(Integer, primary_key=True)
+    host_id = Column(Integer, ForeignKey("hosts.id", ondelete="CASCADE"), nullable=False)
+    tag = Column(Text, nullable=False)
+
+    host = relationship("Host", back_populates="tags")
 
 
 class Software(Base):
