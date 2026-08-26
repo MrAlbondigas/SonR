@@ -559,6 +559,10 @@
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11 l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg></span>
           <span class="label-text">Remediación</span><span class="count">{{ aging_count }}</span>
         </a>
+        <a class="nav-item {{ 'alert' if overdue_vulns else '' }}" data-view="sla" title="Plazos SLA">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9 v4 l2.5 2"/><path d="M9 2 h6"/></svg></span>
+          <span class="label-text">Plazos SLA</span><span class="count">{{ overdue_vulns|length }}</span>
+        </a>
         <a class="nav-item {{ 'alert' if stats.attack_paths else '' }}" data-view="ataque" title="Rutas de ataque">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L20 6 V12 C20 17 16.5 20.5 12 22 C7.5 20.5 4 17 4 12 V6 Z"/><path d="M9.5 12 L11 13.5 L14.5 10"/></svg></span>
           <span class="label-text">Rutas de ataque</span><span class="count">{{ stats.attack_paths }}</span>
@@ -583,7 +587,7 @@
         <a class="nav-item" data-view="alertas" title="Alertas">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 C8 3 6 6 6 10 V13 L4 17 H20 L18 13 V10 C18 6 16 3 12 3 Z"/><path d="M9.5 20 a2.5 2.5 0 0 0 5 0"/></svg></span>
           <span class="label-text">Alertas</span>
-          <span class="dot-indicator {{ 'ok' if webhook_configured else '' }}"></span>
+          <span class="dot-indicator {{ 'ok' if (webhook_configured or email_configured) else '' }}"></span>
         </a>
         <a class="nav-item" data-view="parcheo" title="Parcheo">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 3.5 L20.5 9.5 L11 19 L5 19 L5 13 Z"/><path d="M13 5 L19 11"/></svg></span>
@@ -821,8 +825,9 @@
     {% if is_admin %}
     <!-- Alertas -->
     <div class="view" data-view="alertas">
-      <h1>Alertas (webhook saliente)</h1>
+      <h1>Alertas (webhook y email)</h1>
       <section>
+        <h2>Webhook saliente</h2>
         <div class="scan-panel hud-frame">
           <div class="scan-status-text {{ '' if webhook_configured else 'inactive' }}">
             <span class="dot"></span>
@@ -840,21 +845,40 @@
       </section>
 
       <section>
+        <h2>Notificaciones por email</h2>
+        <div class="scan-panel hud-frame">
+          <div class="scan-status-text {{ '' if email_configured else 'inactive' }}">
+            <span class="dot"></span>
+            {% if email_configured %}
+              Email configurado — las mismas alertas se envían también por correo
+            {% else %}
+              Sin email configurado — define <code>SMTP_HOST</code> y <code>ALERT_EMAIL_TO</code> (y <code>SMTP_USER</code>/<code>SMTP_PASSWORD</code> si tu SMTP lo requiere) en el <code>.env</code> para activarlo
+            {% endif %}
+          </div>
+          <button id="email-test-btn" class="scan-btn" onclick="emailTest()">
+            <span class="spinner"></span>
+            <span id="email-test-label">Enviar alerta de prueba</span>
+          </button>
+        </div>
+      </section>
+
+      <section>
         <h2>Historial de notificaciones</h2>
         <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>Fecha</th><th>Descripción</th><th>Estado</th></tr>
+            <tr><th>Fecha</th><th>Canal</th><th>Descripción</th><th>Estado</th></tr>
           </thead>
           <tbody id="alerts-body">
             {% for a in recent_alerts %}
             <tr>
               <td class="num muted">{{ a.sent_at }}</td>
+              <td><span class="badge count">{{ 'Email' if a.channel == 'email' else 'Webhook' }}</span></td>
               <td>{{ a.description }}</td>
               <td><span class="badge {{ 'count' if a.success else 'sev-medium' }}">{{ 'Entregada' if a.success else 'No entregada' }}</span></td>
             </tr>
             {% else %}
-            <tr><td colspan="3" class="muted">Todavía no se han generado alertas.</td></tr>
+            <tr><td colspan="4" class="muted">Todavía no se han generado alertas.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -1210,6 +1234,117 @@
       </section>
     </div>
 
+    <!-- Plazos SLA -->
+    <div class="view" data-view="sla">
+      <h1>Plazos de remediación (SLA)</h1>
+      <section>
+        <div class="stat-row">
+          <div class="stat-tile" style="--tile-accent: {{ 'var(--status-critical)' if overdue_vulns else 'var(--status-good)' }};">
+            <div class="value">{{ overdue_vulns|length }}</div>
+            <div class="label">Fuera de plazo</div>
+          </div>
+          <div class="stat-tile" style="--tile-accent: var(--status-warning);">
+            <div class="value">{{ due_soon_vulns|length }}</div>
+            <div class="label">Vencen en menos de 3 días</div>
+          </div>
+          <div class="stat-tile" style="--tile-accent: var(--series-blue);">
+            <div class="value">{{ sla_policy.critical_days }}d / {{ sla_policy.high_days }}d</div>
+            <div class="label">Plazo crítica / alta</div>
+          </div>
+          <div class="stat-tile" style="--tile-accent: var(--series-blue);">
+            <div class="value">{{ sla_policy.medium_days }}d / {{ sla_policy.low_days }}d</div>
+            <div class="label">Plazo media / baja</div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Vulnerabilidades fuera de plazo</h2>
+        <p class="muted" style="margin-top:-0.4rem;">El plazo se fija en el momento en que se detecta cada vulnerabilidad, según la severidad y la política vigente en ese momento. Cambiar la política más abajo no altera los plazos ya asignados.</p>
+        <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>CVE</th><th>Software</th><th>Equipo</th><th>Severidad</th><th>Vencía el</th><th>Días de retraso</th></tr>
+          </thead>
+          <tbody>
+            {% set sev_labels = {'critical': 'Crítica', 'high': 'Alta', 'medium': 'Media', 'low': 'Baja'} %}
+            {% for v in overdue_vulns %}
+            <tr>
+              <td>{{ v.cve_id }}</td>
+              <td>{{ v.software.name }}</td>
+              <td>{{ v.software.host.ip }}</td>
+              <td>{% if v.severity %}<span class="badge sev-{{ v.severity }}">{{ sev_labels.get(v.severity, v.severity) }}</span>{% else %}—{% endif %}</td>
+              <td class="muted num">{{ v.sla_due_at }}</td>
+              <td class="num" style="color: var(--status-critical); font-weight: 600;">{{ v.days_overdue }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="muted">Nada fuera de plazo ahora mismo.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </section>
+
+      <section>
+        <h2>Vencen pronto (menos de 3 días)</h2>
+        <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>CVE</th><th>Software</th><th>Equipo</th><th>Severidad</th><th>Vence el</th></tr>
+          </thead>
+          <tbody>
+            {% for v in due_soon_vulns %}
+            <tr>
+              <td>{{ v.cve_id }}</td>
+              <td>{{ v.software.name }}</td>
+              <td>{{ v.software.host.ip }}</td>
+              <td>{% if v.severity %}<span class="badge sev-{{ v.severity }}">{{ sev_labels.get(v.severity, v.severity) }}</span>{% else %}—{% endif %}</td>
+              <td class="muted num">{{ v.sla_due_at }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="muted">Nada vence en los próximos 3 días.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </section>
+
+      {% if is_admin %}
+      <section>
+        <h2>Política de plazos</h2>
+        <div class="hud-frame policy-panel">
+          <p class="muted" style="margin-top:0;">Días permitidos para remediar una vulnerabilidad abierta, según su severidad, antes de considerarla fuera de plazo. Los valores por defecto siguen prácticas habituales de PCI-DSS / ISO 27001.</p>
+          <div class="policy-form">
+            <label class="policy-field">
+              Crítica (días)
+              <input type="number" id="sla-critical" min="1" max="3650" value="{{ sla_policy.critical_days }}">
+            </label>
+            <label class="policy-field">
+              Alta (días)
+              <input type="number" id="sla-high" min="1" max="3650" value="{{ sla_policy.high_days }}">
+            </label>
+            <label class="policy-field">
+              Media (días)
+              <input type="number" id="sla-medium" min="1" max="3650" value="{{ sla_policy.medium_days }}">
+            </label>
+            <label class="policy-field">
+              Baja (días)
+              <input type="number" id="sla-low" min="1" max="3650" value="{{ sla_policy.low_days }}">
+            </label>
+            <button type="button" class="scan-btn" onclick="saveSlaPolicy()">
+              <span class="spinner"></span>
+              <span id="sla-save-label">Guardar política</span>
+            </button>
+            <div id="sla-saved-note" class="policy-note"></div>
+          </div>
+          {% if sla_policy.updated_by %}
+          <p class="muted">Última actualización por {{ sla_policy.updated_by }} el {{ sla_policy.updated_at }}.</p>
+          {% endif %}
+        </div>
+      </section>
+      {% endif %}
+    </div>
+
     <!-- Rutas de ataque -->
     <div class="view" data-view="ataque">
       <h1>Rutas de ataque</h1>
@@ -1467,6 +1602,35 @@
     }
   }
 
+  async function saveSlaPolicy() {
+    const btn = document.querySelector("#sla-save-label").closest("button");
+    const label = document.getElementById("sla-save-label");
+    const note = document.getElementById("sla-saved-note");
+
+    btn.disabled = true; btn.classList.add("loading"); label.textContent = "Guardando...";
+    note.textContent = "";
+    try {
+      const resp = await fetch("/sla/policy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          critical_days: parseInt(document.getElementById("sla-critical").value, 10),
+          high_days: parseInt(document.getElementById("sla-high").value, 10),
+          medium_days: parseInt(document.getElementById("sla-medium").value, 10),
+          low_days: parseInt(document.getElementById("sla-low").value, 10),
+        }),
+      });
+      if (!resp.ok) throw new Error("failed");
+      label.textContent = "Guardar política";
+      note.textContent = "Política guardada — se aplicará a las vulnerabilidades detectadas a partir de ahora.";
+    } catch (err) {
+      label.textContent = "Error, reintenta";
+      note.textContent = "";
+    } finally {
+      btn.disabled = false; btn.classList.remove("loading");
+    }
+  }
+
   // --- Escaneo manual ---
   let scanPolling = null;
 
@@ -1713,6 +1877,22 @@
       const data = await resp.json();
       if (!resp.ok) throw new Error("failed");
       label.textContent = data.delivered ? "Enviada" : (data.configured ? "Fallo el envio" : "Sin webhook configurado");
+      location.reload();
+    } catch (err) {
+      label.textContent = "Error, reintenta";
+      btn.disabled = false; btn.classList.remove("loading");
+    }
+  }
+
+  async function emailTest() {
+    const btn = document.getElementById("email-test-btn");
+    const label = document.getElementById("email-test-label");
+    btn.disabled = true; btn.classList.add("loading"); label.textContent = "Enviando...";
+    try {
+      const resp = await fetch("/email/test", { method: "POST" });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error("failed");
+      label.textContent = data.delivered ? "Enviada" : (data.configured ? "Fallo el envio" : "Sin email configurado");
       location.reload();
     } catch (err) {
       label.textContent = "Error, reintenta";

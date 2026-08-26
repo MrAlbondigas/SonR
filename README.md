@@ -40,6 +40,7 @@ base de datos SQLite aislada — nunca tocan los datos reales de Postgres.
 - [x] Fase 2: cruce con CVEs (NVD), verificación de exploits públicos (CISA KEV), timeline de cambios, priorización top-5
 - [x] Fase 3: credenciales por defecto (SSH/FTP/HTTP Basic), fingerprinting de fabricante por MAC, rutas de ataque
 - [x] Fase 4: reportes PDF programados (semanal). Asistente de chat pendiente — necesita una API key de Anthropic propia del proyecto (no incluida por decisión del alumno)
+- [x] Fase 5: cruce exacto por CPE contra NVD, escaneo autenticado por SSH, lista de credenciales por defecto ampliada, verificación no destructiva de PoC en equipos de prácticas, plazos de remediación (SLA) por severidad, alertas por email además de webhook
 
 ## Precisión del cruce con NVD
 
@@ -72,8 +73,32 @@ añadió Telnet (puerto 23) — el vector clásico de credenciales por defecto e
 éxito/fallo en el protocolo, así que esa comprobación es heurística (reconoce patrones de prompt típicos) y
 por tanto algo menos fiable por naturaleza del propio protocolo, no por una limitación de la implementación.
 
+## Verificación de exploits (PoC)
+
+Para equipos marcados explícitamente por un administrador como "de prácticas" (nunca por defecto), el dashboard
+permite reverificar en vivo un hallazgo ya existente: reintentar un login con credenciales por defecto ya
+encontradas, o releer la cabecera de un servicio HTTP para confirmar si sigue anunciando la versión vulnerable.
+Ambas comprobaciones son reales (conexión de red genuina, no simulada) pero deliberadamente no destructivas —
+no se explota ninguna vulnerabilidad de ejecución de código, solo se confirma o descarta lo ya detectado. Cada
+intento queda registrado (qué, cuándo, quién, resultado) en un log de auditoría, igual que el parcheo automático.
+
+## Plazos de remediación (SLA)
+
+Cada vulnerabilidad detectada recibe automáticamente una fecha límite de remediación según su severidad
+(configurable por un administrador; por defecto 7/30/90/180 días para crítica/alta/media/baja, en línea con
+prácticas habituales de PCI-DSS / ISO 27001). El plazo se fija en el momento de la detección (o reapertura) y
+no se mueve retroactivamente si la política cambia después. El dashboard muestra qué está fuera de plazo y qué
+vence en los próximos días — la vista que un responsable de cumplimiento revisaría antes de una auditoría.
+
+## Alertas por email
+
+Además del webhook saliente (Discord/Slack), las mismas alertas (vulnerabilidad crítica con exploit conocido,
+credenciales por defecto encontradas, parche aplicado, cuenta bloqueada) pueden enviarse por email vía SMTP.
+Ambos canales son independientes y opcionales; cada intento de envío queda registrado en el historial de
+alertas con su canal y resultado, se haya entregado o no.
+
 ## Limitaciones conocidas
 
 - Las "rutas de ataque" asumen red plana (sin VLANs/segmentación) ya que no se detecta topología de red más allá de la subred local.
 - El escaneo autenticado verifica la versión de servicios que nmap ya detectó en la red (vía `dpkg-query`); no hace un inventario completo de todos los paquetes instalados en el sistema, solo de los que corresponden a servicios expuestos.
-- Ningún hallazgo de vulnerabilidad se verifica activamente explotándolo — el sistema reporta coincidencias contra bases de datos públicas (NVD, CISA KEV), no confirmación de explotabilidad real.
+- La verificación de PoC es intencionadamente no destructiva y solo opera sobre equipos marcados como "de prácticas": el sistema no explota vulnerabilidades de ejecución de código ni intenta ganar acceso más allá de credenciales ya encontradas. El resto de hallazgos se reportan por coincidencia contra bases de datos públicas (NVD, CISA KEV), sin confirmación de explotabilidad real.

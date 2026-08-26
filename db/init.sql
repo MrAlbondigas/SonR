@@ -62,7 +62,8 @@ CREATE TABLE vulnerabilities (
     detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     resolved_at TIMESTAMPTZ,
     status TEXT NOT NULL DEFAULT 'abierta',
-    match_type TEXT NOT NULL DEFAULT 'keyword'
+    match_type TEXT NOT NULL DEFAULT 'keyword',
+    sla_due_at TIMESTAMPTZ
 );
 
 CREATE TABLE risk_snapshots (
@@ -162,7 +163,18 @@ CREATE TABLE scan_policy (
     updated_by TEXT
 );
 
+CREATE TABLE sla_policy (
+    id SERIAL PRIMARY KEY,
+    critical_days INTEGER NOT NULL DEFAULT 7,
+    high_days INTEGER NOT NULL DEFAULT 30,
+    medium_days INTEGER NOT NULL DEFAULT 90,
+    low_days INTEGER NOT NULL DEFAULT 180,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_by TEXT
+);
+
 CREATE INDEX idx_software_host ON software(host_id);
+CREATE INDEX idx_vuln_sla_due ON vulnerabilities(sla_due_at) WHERE resolved_at IS NULL;
 CREATE INDEX idx_vuln_software ON vulnerabilities(software_id);
 CREATE INDEX idx_events_occurred ON events(occurred_at DESC);
 CREATE INDEX idx_credfindings_host ON credential_findings(host_id);

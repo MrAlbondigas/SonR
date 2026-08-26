@@ -6,6 +6,7 @@ os.environ.setdefault("SCANNER_API_KEY", "test-scanner-key")
 os.environ.setdefault("ADMIN_USERNAME", "testadmin")
 os.environ.setdefault("ADMIN_PASSWORD", "TestPass123!")
 os.environ.setdefault("ALERT_WEBHOOK_URL", "")
+os.environ.setdefault("CREDENTIAL_ENCRYPTION_KEY", "rUACrbIzb4a2-0Be9LwwS4Pqb6JezTxb0wQL-UzOGTc=")
 
 _DB_PATH = "./test_proyecto_cyber.db"
 if os.path.exists(_DB_PATH):

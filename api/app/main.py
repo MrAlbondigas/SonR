@@ -1,7 +1,9 @@
 import math
 import os
 import shlex
+import smtplib
 from datetime import datetime, timedelta, timezone
+from email.message import EmailMessage
 
 import paramiko
 import requests
@@ -23,6 +25,13 @@ SCANNER_API_KEY = os.environ["SCANNER_API_KEY"]
 REPORTS_DIR = "/app/reports"
 SERVICE_REMOVAL_THRESHOLD = 3
 ALERT_WEBHOOK_URL = os.environ.get("ALERT_WEBHOOK_URL", "").strip()
+ALERT_EMAIL_TO = os.environ.get("ALERT_EMAIL_TO", "").strip()
+ALERT_EMAIL_FROM = os.environ.get("ALERT_EMAIL_FROM", "proyecto-cyber@localhost").strip()
+SMTP_HOST = os.environ.get("SMTP_HOST", "").strip()
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587") or "587")
+SMTP_USER = os.environ.get("SMTP_USER", "").strip()
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+EMAIL_CONFIGURED = bool(SMTP_HOST and ALERT_EMAIL_TO)
 
 
 def send_webhook_alert(
@@ -50,6 +59,52 @@ def send_webhook_alert(
     )
     db.commit()
     return success
+
+
+def send_email_alert(
+    db: Session,
+    message: str,
+    vulnerability_id: int | None = None,
+    host_id: int | None = None,
+    subject: str = "Proyecto Cyber — alerta de seguridad",
+) -> bool:
+    success = False
+    if SMTP_HOST and ALERT_EMAIL_TO:
+        try:
+            email_msg = EmailMessage()
+            email_msg["Subject"] = subject
+            email_msg["From"] = ALERT_EMAIL_FROM
+            email_msg["To"] = ALERT_EMAIL_TO
+            email_msg.set_content(message)
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=8) as server:
+                server.starttls()
+                if SMTP_USER:
+                    server.login(SMTP_USER, SMTP_PASSWORD)
+                server.send_message(email_msg)
+            success = True
+        except Exception:
+            success = False
+    db.add(
+        models.Alert(
+            vulnerability_id=vulnerability_id,
+            host_id=host_id,
+            channel="email",
+            description=message,
+            success=success,
+        )
+    )
+    db.commit()
+    return success
+
+
+def notify_alert(
+    db: Session, message: str, vulnerability_id: int | None = None, host_id: int | None = None
+) -> bool:
+    """Envia la alerta por todos los canales configurados (webhook y/o email) y registra
+    un intento por canal en el historial, aunque ese canal no este configurado."""
+    webhook_ok = send_webhook_alert(db, message, vulnerability_id=vulnerability_id, host_id=host_id)
+    email_ok = send_email_alert(db, message, vulnerability_id=vulnerability_id, host_id=host_id)
+    return webhook_ok or email_ok
 
 
 def lookup_vendor(mac: str) -> str | None:
@@ -123,7 +178,7 @@ def login(payload: schemas.LoginIn, request: Request, response: Response, db: Se
     if not success:
         # avisa una sola vez, justo en el intento que provoca el bloqueo (no en cada reintento posterior)
         if failed_by_user + 1 == LOGIN_MAX_ATTEMPTS:
-            send_webhook_alert(
+            notify_alert(
                 db,
                 f"🔒 Cuenta bloqueada temporalmente tras {LOGIN_MAX_ATTEMPTS} intentos fallidos de login: "
                 f"usuario '{payload.username}' desde {ip_address}",
@@ -223,6 +278,55 @@ def policy_to_dict(policy: models.ScanPolicy) -> dict:
         "updated_at": policy.updated_at,
         "updated_by": policy.updated_by,
     }
+
+
+# --- Plazos de remediacion (SLA) ---
+# Cuanto tiempo tolera la politica de la empresa una vulnerabilidad abierta segun su
+# severidad, tal y como lo exigen la mayoria de marcos de cumplimiento (PCI-DSS, ISO
+# 27001, SOC 2). El plazo se fija en el momento en que la vulnerabilidad se detecta por
+# primera vez (o se reabre) y no cambia despues, aunque se edite la politica mas tarde.
+
+
+def get_or_create_sla_policy(db: Session) -> models.SlaPolicy:
+    policy = db.query(models.SlaPolicy).filter(models.SlaPolicy.id == 1).first()
+    if policy is None:
+        policy = models.SlaPolicy(id=1)
+        db.add(policy)
+        db.commit()
+        db.refresh(policy)
+    return policy
+
+
+def sla_policy_to_dict(policy: models.SlaPolicy) -> dict:
+    return {
+        "critical_days": policy.critical_days,
+        "high_days": policy.high_days,
+        "medium_days": policy.medium_days,
+        "low_days": policy.low_days,
+        "updated_at": policy.updated_at,
+        "updated_by": policy.updated_by,
+    }
+
+
+def _aware_utc(dt: datetime | None) -> datetime | None:
+    """SQLite (usado solo en tests) devuelve datetimes "naive" aunque se guardaran con
+    zona horaria; Postgres (produccion) preserva la zona correctamente. Normalizamos para
+    que la aritmetica de fechas no falle segun el motor de base de datos."""
+    if dt is not None and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def compute_sla_due_at(severity: str | None, detected_at: datetime, policy: models.SlaPolicy):
+    days = {
+        "critical": policy.critical_days,
+        "high": policy.high_days,
+        "medium": policy.medium_days,
+        "low": policy.low_days,
+    }.get(severity or "")
+    if days is None:
+        return None
+    return detected_at + timedelta(days=days)
 
 
 @app.get("/scan/policy")
@@ -497,6 +601,7 @@ def ingest_vulnerabilities(payload: schemas.VulnerabilityIngest, db: Session = D
         raise HTTPException(status_code=404, detail="Software not found")
 
     existing_by_cve = {v.cve_id: v for v in software.vulnerabilities}
+    sla_policy = get_or_create_sla_policy(db)
     new_count = 0
     reopened_count = 0
     superseded_count = 0
@@ -508,6 +613,9 @@ def ingest_vulnerabilities(payload: schemas.VulnerabilityIngest, db: Session = D
             if existing.resolved_at is not None:
                 existing.resolved_at = None
                 existing.status = "abierta"
+                existing.sla_due_at = compute_sla_due_at(
+                    existing.severity, datetime.now(timezone.utc), sla_policy
+                )
                 reopened_count += 1
                 db.add(
                     models.Event(
@@ -520,7 +628,12 @@ def ingest_vulnerabilities(payload: schemas.VulnerabilityIngest, db: Session = D
                     )
                 )
             continue
-        new_vuln = models.Vulnerability(software_id=software.id, **vuln_in.model_dump())
+        detected_at = datetime.now(timezone.utc)
+        new_vuln = models.Vulnerability(
+            software_id=software.id,
+            sla_due_at=compute_sla_due_at(vuln_in.severity, detected_at, sla_policy),
+            **vuln_in.model_dump(),
+        )
         db.add(new_vuln)
         new_count += 1
         if vuln_in.known_exploited:
@@ -568,7 +681,7 @@ def ingest_vulnerabilities(payload: schemas.VulnerabilityIngest, db: Session = D
     if new_count or reopened_count or superseded_count:
         record_risk_snapshot(db)
     for vuln_obj, message in pending_alerts:
-        send_webhook_alert(db, message, vulnerability_id=vuln_obj.id, host_id=software.host_id)
+        notify_alert(db, message, vulnerability_id=vuln_obj.id, host_id=software.host_id)
     return {"software_id": software.id, "new_vulnerabilities": new_count, "reopened": reopened_count}
 
 
@@ -632,7 +745,7 @@ def ingest_credential(payload: schemas.CredentialFindingIn, db: Session = Depend
         )
         db.commit()
         record_risk_snapshot(db)
-        send_webhook_alert(
+        notify_alert(
             db,
             f"🔑 Credenciales por defecto validas en {host.ip if host else payload.host_id} "
             f"puerto {payload.port} ({payload.service}): {payload.username}/{payload.password}",
@@ -660,6 +773,24 @@ def webhook_test(db: Session = Depends(get_db), admin: models.User = Depends(aut
         db, f"✅ Prueba de webhook desde Proyecto Cyber, enviada por {admin.username}."
     )
     return {"ok": True, "configured": bool(ALERT_WEBHOOK_URL), "delivered": success}
+
+
+@app.get("/email/status")
+def email_status(db: Session = Depends(get_db)):
+    last = db.query(models.Alert).filter(models.Alert.channel == "email").order_by(models.Alert.id.desc()).first()
+    return {
+        "configured": EMAIL_CONFIGURED,
+        "last_sent_at": last.sent_at if last else None,
+        "last_success": last.success if last else None,
+    }
+
+
+@app.post("/email/test")
+def email_test(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
+    success = send_email_alert(
+        db, f"Prueba de alerta por email desde Proyecto Cyber, enviada por {admin.username}."
+    )
+    return {"ok": True, "configured": EMAIL_CONFIGURED, "delivered": success}
 
 
 @app.get("/alerts")
@@ -1169,7 +1300,7 @@ def patch_vulnerability(
     db.commit()
     if success:
         record_risk_snapshot(db)
-        send_webhook_alert(
+        notify_alert(
             db,
             f"🛠️ Parche aplicado automaticamente en {host.ip} ({software.name}): {vuln.cve_id or ''}".strip(),
             vulnerability_id=vuln.id,
@@ -1351,6 +1482,64 @@ def get_poc_log(db: Session = Depends(get_db), admin: models.User = Depends(auth
     ]
 
 
+# --- Plazos de remediacion (SLA) ---
+
+
+@app.get("/sla/policy")
+def get_sla_policy(db: Session = Depends(get_db)):
+    return sla_policy_to_dict(get_or_create_sla_policy(db))
+
+
+@app.post("/sla/policy")
+def set_sla_policy(
+    payload: schemas.SlaPolicyUpdate,
+    db: Session = Depends(get_db),
+    admin: models.User = Depends(auth.require_admin),
+):
+    for days in (payload.critical_days, payload.high_days, payload.medium_days, payload.low_days):
+        if not (1 <= days <= 3650):
+            raise HTTPException(status_code=400, detail="Cada plazo debe estar entre 1 y 3650 dias")
+
+    policy = get_or_create_sla_policy(db)
+    policy.critical_days = payload.critical_days
+    policy.high_days = payload.high_days
+    policy.medium_days = payload.medium_days
+    policy.low_days = payload.low_days
+    policy.updated_at = func.now()
+    policy.updated_by = admin.username
+    db.commit()
+    return {"ok": True, **sla_policy_to_dict(policy)}
+
+
+@app.get("/sla/overdue")
+def get_overdue_vulnerabilities(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
+    now = datetime.now(timezone.utc)
+    rows = (
+        db.query(models.Vulnerability)
+        .join(models.Software)
+        .filter(
+            models.Vulnerability.resolved_at.is_(None),
+            models.Software.removed_at.is_(None),
+            models.Vulnerability.sla_due_at.isnot(None),
+            models.Vulnerability.sla_due_at < now,
+        )
+        .order_by(models.Vulnerability.sla_due_at.asc())
+        .all()
+    )
+    return [
+        {
+            "id": v.id,
+            "cve_id": v.cve_id,
+            "severity": v.severity,
+            "host_ip": v.software.host.ip,
+            "software": v.software.name,
+            "sla_due_at": v.sla_due_at,
+            "days_overdue": (now - _aware_utc(v.sla_due_at)).days,
+        }
+        for v in rows
+    ]
+
+
 # --- Reportes ---
 
 
@@ -1445,6 +1634,10 @@ def seed_demo_data(db: Session = Depends(get_db), admin: models.User = Depends(a
     db.flush()
     db.add(models.DemoRecord(table_name="software", record_id=demo_software.id))
 
+    # se detecta "hace 10 dias" a proposito: con el plazo por defecto de 7 dias para
+    # criticas, la demo muestra de inmediato como se ve una vulnerabilidad fuera de SLA
+    demo_detected_at = datetime.now(timezone.utc) - timedelta(days=10)
+    sla_policy = get_or_create_sla_policy(db)
     demo_vuln = models.Vulnerability(
         software_id=demo_software.id,
         cve_id="CVE-2024-3400",
@@ -1453,6 +1646,8 @@ def seed_demo_data(db: Session = Depends(get_db), admin: models.User = Depends(a
         description="[DEMO] Inyeccion de comandos no autenticada en la interfaz de gestion. Permite ejecucion remota de codigo.",
         remediation="[DEMO] Actualizar a la ultima version y revisar logs de acceso en busca de indicadores de compromiso.",
         known_exploited=True,
+        detected_at=demo_detected_at,
+        sla_due_at=compute_sla_due_at("critical", demo_detected_at, sla_policy),
     )
     db.add(demo_vuln)
     db.flush()
@@ -1574,6 +1769,23 @@ def dashboard(
         )
     else:
         avg_remediation_days = None
+
+    # --- Plazos de remediacion (SLA) ---
+    now_utc = datetime.now(timezone.utc)
+    sla_policy = sla_policy_to_dict(get_or_create_sla_policy(db))
+    for v in all_vulns:
+        v.sla_due_at = _aware_utc(v.sla_due_at)
+    overdue_vulns = sorted(
+        (v for v in all_vulns if v.sla_due_at and v.sla_due_at < now_utc),
+        key=lambda v: v.sla_due_at,
+    )
+    for v in overdue_vulns:
+        v.days_overdue = (now_utc - v.sla_due_at).days
+    due_soon_cutoff = now_utc + timedelta(days=3)
+    due_soon_vulns = sorted(
+        (v for v in all_vulns if v.sla_due_at and now_utc <= v.sla_due_at < due_soon_cutoff),
+        key=lambda v: v.sla_due_at,
+    )
 
     kev_count = sum(1 for v in all_vulns if v.known_exploited)
     security_grade = compute_security_grade(
@@ -1720,6 +1932,7 @@ def dashboard(
             "pending_scan_request": pending_scan_request is not None,
             "demo_active": demo_active,
             "webhook_configured": bool(ALERT_WEBHOOK_URL),
+            "email_configured": EMAIL_CONFIGURED,
             "recent_alerts": recent_alerts,
             "is_authenticated": current_user is not None,
             "is_admin": current_user is not None and current_user.role == "admin",
@@ -1761,6 +1974,9 @@ def dashboard(
             "verifiable_vulns": verifiable_vulns,
             "security_grade": security_grade,
             "device_types": device_types,
+            "sla_policy": sla_policy,
+            "overdue_vulns": overdue_vulns,
+            "due_soon_vulns": due_soon_vulns,
         },
     )
 

@@ -2,6 +2,7 @@ from sqlalchemy import REAL, Boolean, Column, ForeignKey, Integer, Text, TIMESTA
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
+from .crypto import EncryptedString
 from .database import Base
 
 
@@ -102,7 +103,7 @@ class SSHCredential(Base):
 
     host_id = Column(Integer, ForeignKey("hosts.id", ondelete="CASCADE"), primary_key=True)
     username = Column(Text, nullable=False)
-    password = Column(Text, nullable=False)
+    password = Column(EncryptedString, nullable=False)
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     updated_by = Column(Text)
 
@@ -151,6 +152,18 @@ class ScanPolicy(Base):
     updated_by = Column(Text)
 
 
+class SlaPolicy(Base):
+    __tablename__ = "sla_policy"
+
+    id = Column(Integer, primary_key=True)
+    critical_days = Column(Integer, nullable=False, default=7)
+    high_days = Column(Integer, nullable=False, default=30)
+    medium_days = Column(Integer, nullable=False, default=90)
+    low_days = Column(Integer, nullable=False, default=180)
+    updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    updated_by = Column(Text)
+
+
 class Software(Base):
     __tablename__ = "software"
 
@@ -189,6 +202,7 @@ class Vulnerability(Base):
     resolved_at = Column(TIMESTAMP(timezone=True))
     status = Column(Text, nullable=False, default="abierta")
     match_type = Column(Text, nullable=False, default="keyword")
+    sla_due_at = Column(TIMESTAMP(timezone=True))
 
     software = relationship("Software", back_populates="vulnerabilities")
 
@@ -211,7 +225,7 @@ class CredentialFinding(Base):
     port = Column(Integer, nullable=False)
     service = Column(Text, nullable=False)
     username = Column(Text, nullable=False)
-    password = Column(Text, nullable=False)
+    password = Column(EncryptedString, nullable=False)
     found_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     host = relationship("Host", back_populates="credential_findings")

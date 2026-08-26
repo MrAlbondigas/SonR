@@ -31,6 +31,7 @@ jobs:
           ADMIN_USERNAME: ci-admin
           ADMIN_PASSWORD: CiTestPass123!
           ALERT_WEBHOOK_URL: ""
+          CREDENTIAL_ENCRYPTION_KEY: "rUACrbIzb4a2-0Be9LwwS4Pqb6JezTxb0wQL-UzOGTc="
 
   enricher-tests:
     runs-on: ubuntu-latest

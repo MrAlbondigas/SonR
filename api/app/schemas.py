@@ -69,3 +69,10 @@ class ScanPolicyUpdate(BaseModel):
     excluded_ips: list[str] = []
     quiet_hours_start: int | None = None
     quiet_hours_end: int | None = None
+
+
+class SlaPolicyUpdate(BaseModel):
+    critical_days: int
+    high_days: int
+    medium_days: int
+    low_days: int
