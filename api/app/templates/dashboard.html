@@ -604,6 +604,11 @@
           <span class="label-text">Verificación PoC</span>
           <span class="count">{{ practice_target_count }}</span>
         </a>
+        <a class="nav-item" data-view="integraciones" title="Integraciones">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="7" height="10" rx="1.4"/><rect x="14" y="7" width="7" height="10" rx="1.4"/><path d="M10 12 h4"/></svg></span>
+          <span class="label-text">Integraciones</span>
+          <span class="count">{{ api_keys|rejectattr('revoked_at')|list|length }}</span>
+        </a>
         <a class="nav-item" data-view="demo" title="Demo">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3 h6 M10 3 v6.2 L4.6 18.4 A2 2 0 0 0 6.4 21.4 H17.6 A2 2 0 0 0 19.4 18.4 L14 9.2 V3"/><path d="M6.5 15 h11"/></svg></span>
           <span class="label-text">Demo</span>
@@ -1073,6 +1078,73 @@
             <span class="spinner"></span>
             <span id="demo-clear-label">Quitar datos de ejemplo</span>
           </button>
+        </div>
+      </section>
+    </div>
+
+    <!-- Integraciones (claves API de solo lectura) -->
+    <div class="view" data-view="integraciones">
+      <h1>Integraciones</h1>
+      <p class="empty-state" style="margin: 0 0 1.2rem;">
+        Genera claves API de solo lectura para conectar herramientas externas (SIEM, ticketing, dashboards
+        propios) al endpoint <code>GET /api/v1/export</code> — inventario, riesgo y vulnerabilidades abiertas en
+        JSON. Distinta de la clave interna del escáner: estas claves solo leen, nunca pueden escribir datos, y
+        se pueden revocar individualmente en cualquier momento.
+      </p>
+
+      <section>
+        <h2>Generar clave nueva</h2>
+        <div class="hud-frame policy-panel">
+          <div class="policy-form">
+            <label class="policy-field">
+              Nombre (para identificarla después — p. ej. "Splunk SOC")
+              <input type="text" id="api-key-name" placeholder="Nombre de la integración">
+            </label>
+            <button type="button" class="scan-btn" onclick="createApiKey()">
+              <span class="spinner"></span>
+              <span id="api-key-create-label">Generar clave</span>
+            </button>
+          </div>
+          <div id="api-key-reveal" style="display:none; margin-top:1rem;">
+            <p class="muted">Copia esta clave ahora — no se puede volver a mostrar. Envíala por un canal seguro.</p>
+            <code id="api-key-reveal-value" style="display:block; padding:0.6rem; border-radius:6px; background: var(--surface-2, rgba(127,127,127,0.15)); word-break: break-all;"></code>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Claves existentes</h2>
+        <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Nombre</th><th>Prefijo</th><th>Creada</th><th>Por</th><th>Último uso</th><th>Estado</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for k in api_keys %}
+            <tr>
+              <td>{{ k.name }}</td>
+              <td class="muted">{{ k.key_prefix }}…</td>
+              <td class="muted num">{{ k.created_at }}</td>
+              <td class="muted">{{ k.created_by or "—" }}</td>
+              <td class="muted num">{{ k.last_used_at or "nunca" }}</td>
+              <td>
+                {% if k.revoked_at %}
+                <span class="badge sev-medium">Revocada</span>
+                {% else %}
+                <span class="badge count">Activa</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if not k.revoked_at %}
+                <button class="btn-patch danger" onclick="revokeApiKey({{ k.id }})">Revocar</button>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="muted">Todavía no se ha generado ninguna clave API.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
         </div>
       </section>
     </div>
@@ -1879,6 +1951,41 @@
       location.reload();
     } catch (err) {
       alert("No se pudieron guardar las etiquetas.");
+    }
+  }
+
+  async function createApiKey() {
+    const nameInput = document.getElementById("api-key-name");
+    const label = document.getElementById("api-key-create-label");
+    const name = nameInput.value.trim();
+    if (!name) { alert("Ponle un nombre a la clave."); return; }
+    label.textContent = "Generando...";
+    try {
+      const resp = await fetch("/api-keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name }),
+      });
+      if (!resp.ok) throw new Error("failed");
+      const data = await resp.json();
+      document.getElementById("api-key-reveal-value").textContent = data.key;
+      document.getElementById("api-key-reveal").style.display = "block";
+      nameInput.value = "";
+      label.textContent = "Generar clave";
+    } catch (err) {
+      label.textContent = "Error, reintenta";
+    }
+  }
+
+  async function revokeApiKey(keyId) {
+    if (!confirm("Esto revoca la clave de inmediato: cualquier integración que la use dejará de funcionar. Continuar?")) return;
+    try {
+      const resp = await fetch("/api-keys/" + keyId + "/revoke", { method: "POST" });
+      if (!resp.ok) throw new Error("failed");
+      location.hash = "integraciones";
+      location.reload();
+    } catch (err) {
+      alert("No se pudo revocar la clave.");
     }
   }
 

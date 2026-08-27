@@ -175,6 +175,19 @@ class HostTag(Base):
     host = relationship("Host", back_populates="tags")
 
 
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(Text, nullable=False)
+    key_prefix = Column(Text, nullable=False)
+    key_hash = Column(Text, nullable=False, unique=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    created_by = Column(Text)
+    last_used_at = Column(TIMESTAMP(timezone=True))
+    revoked_at = Column(TIMESTAMP(timezone=True))
+
+
 class Software(Base):
     __tablename__ = "software"
 

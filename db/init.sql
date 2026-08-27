@@ -180,9 +180,21 @@ CREATE TABLE host_tags (
     UNIQUE (host_id, tag)
 );
 
+CREATE TABLE api_keys (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    key_prefix TEXT NOT NULL,
+    key_hash TEXT NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_by TEXT,
+    last_used_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ
+);
+
 CREATE INDEX idx_software_host ON software(host_id);
 CREATE INDEX idx_host_tags_host ON host_tags(host_id);
 CREATE INDEX idx_host_tags_tag ON host_tags(tag);
+CREATE INDEX idx_api_keys_hash ON api_keys(key_hash);
 CREATE INDEX idx_vuln_sla_due ON vulnerabilities(sla_due_at) WHERE resolved_at IS NULL;
 CREATE INDEX idx_vuln_software ON vulnerabilities(software_id);
 CREATE INDEX idx_events_occurred ON events(occurred_at DESC);

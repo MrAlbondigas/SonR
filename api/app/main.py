@@ -1,5 +1,7 @@
+import hashlib
 import math
 import os
+import secrets
 import shlex
 import smtplib
 from datetime import datetime, timedelta, timezone
@@ -140,6 +142,41 @@ def create_admin_user():
 def verify_scanner_key(x_api_key: str = Header(default="")):
     if x_api_key != SCANNER_API_KEY:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid scanner API key")
+
+
+# --- Claves API de solo lectura (integraciones externas: SIEM, ticketing, etc.) ---
+# Distintas de SCANNER_API_KEY a proposito: esa clave interna puede escribir datos de
+# escaneo (scan/ingest, vulnerabilities/ingest...); estas claves las genera un admin
+# desde el dashboard, son revocables individualmente, y solo dan acceso de LECTURA.
+
+API_KEY_PREFIX_LENGTH = 12
+
+
+def _hash_api_key(raw_key: str) -> str:
+    return hashlib.sha256(raw_key.encode()).hexdigest()
+
+
+def generate_api_key() -> tuple[str, str, str]:
+    """Devuelve (clave en texto plano, prefijo para mostrar en el listado, hash a guardar)."""
+    raw_key = "pc_" + secrets.token_urlsafe(32)
+    return raw_key, raw_key[:API_KEY_PREFIX_LENGTH], _hash_api_key(raw_key)
+
+
+def verify_read_api_key(
+    x_api_key: str = Header(default=""), db: Session = Depends(get_db)
+) -> models.ApiKey:
+    if not x_api_key:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Falta la cabecera X-API-Key")
+    key_row = (
+        db.query(models.ApiKey)
+        .filter(models.ApiKey.key_hash == _hash_api_key(x_api_key), models.ApiKey.revoked_at.is_(None))
+        .first()
+    )
+    if not key_row:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Clave API invalida o revocada")
+    key_row.last_used_at = func.now()
+    db.commit()
+    return key_row
 
 
 # --- Auth ---
@@ -1660,6 +1697,106 @@ def report_data(db: Session = Depends(get_db)):
     }
 
 
+@app.get("/api/v1/export", dependencies=[Depends(verify_read_api_key)])
+def api_export(db: Session = Depends(get_db)):
+    """Export de solo lectura para integraciones externas (SIEM, ticketing...). Autenticado
+    con una clave API generada por un admin (no la clave interna del escaner), y deliberadamente
+    mas conservador que /reports/data: no incluye usuarios/contrasenas de credenciales encontradas,
+    solo el recuento."""
+    hosts = db.query(models.Host).order_by(models.Host.ip).all()
+    now = datetime.now(timezone.utc)
+    open_vulns_all = (
+        db.query(models.Vulnerability)
+        .join(models.Software)
+        .filter(models.Vulnerability.resolved_at.is_(None), models.Software.removed_at.is_(None))
+        .all()
+    )
+    host_tags_by_id = {h.id: sorted(t.tag for t in h.tags) for h in hosts}
+    host_risks = {r["host_id"]: r for r in (compute_host_risk(h) for h in hosts)}
+
+    return {
+        "generated_at": now.isoformat(),
+        "host_count": len(hosts),
+        "network_risk_score": sum(r["score"] for r in host_risks.values()),
+        "credential_findings_count": db.query(models.CredentialFinding).count(),
+        "hosts": [
+            {
+                "ip": h.ip,
+                "hostname": h.hostname,
+                "tags": host_tags_by_id[h.id],
+                "risk_score": host_risks[h.id]["score"],
+                "risk_level": host_risks[h.id]["level_label"],
+            }
+            for h in hosts
+        ],
+        "open_vulnerabilities": [
+            {
+                "cve_id": v.cve_id,
+                "cvss": v.cvss,
+                "severity": v.severity,
+                "known_exploited": v.known_exploited,
+                "host_ip": v.software.host.ip,
+                "software": v.software.name,
+                "detected_at": v.detected_at.isoformat() if v.detected_at else None,
+                "sla_due_at": v.sla_due_at.isoformat() if v.sla_due_at else None,
+            }
+            for v in open_vulns_all
+        ],
+    }
+
+
+@app.post("/api-keys")
+def create_api_key(
+    payload: schemas.ApiKeyCreate,
+    db: Session = Depends(get_db),
+    admin: models.User = Depends(auth.require_admin),
+):
+    name = payload.name.strip()[:80]
+    if not name:
+        raise HTTPException(status_code=400, detail="El nombre no puede estar vacio")
+    raw_key, prefix, key_hash = generate_api_key()
+    row = models.ApiKey(name=name, key_prefix=prefix, key_hash=key_hash, created_by=admin.username)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {
+        "id": row.id,
+        "name": row.name,
+        "key": raw_key,  # solo se muestra una vez; no se puede recuperar despues
+        "key_prefix": row.key_prefix,
+        "created_at": row.created_at,
+    }
+
+
+@app.get("/api-keys")
+def list_api_keys(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
+    rows = db.query(models.ApiKey).order_by(models.ApiKey.id.desc()).all()
+    return [
+        {
+            "id": r.id,
+            "name": r.name,
+            "key_prefix": r.key_prefix,
+            "created_at": r.created_at,
+            "created_by": r.created_by,
+            "last_used_at": r.last_used_at,
+            "revoked": r.revoked_at is not None,
+        }
+        for r in rows
+    ]
+
+
+@app.post("/api-keys/{key_id}/revoke")
+def revoke_api_key(
+    key_id: int, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)
+):
+    row = db.query(models.ApiKey).filter(models.ApiKey.id == key_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="API key not found")
+    row.revoked_at = func.now()
+    db.commit()
+    return {"ok": True}
+
+
 @app.get("/reports/latest")
 def download_latest_report():
     path = os.path.join(REPORTS_DIR, "latest.pdf")
@@ -1800,6 +1937,8 @@ def dashboard(
         .filter(models.Vulnerability.resolved_at.is_(None), models.Software.removed_at.is_(None))
         .all()
     )
+    for v in all_vulns:
+        v.detected_at = _aware_utc(v.detected_at)
     severity_order = ["critical", "high", "medium", "low"]
     severity_counts = {s: 0 for s in severity_order}
     for v in all_vulns:
@@ -1828,7 +1967,10 @@ def dashboard(
     )
     if resolved_vulns_all:
         avg_remediation_days = round(
-            sum((v.resolved_at - v.detected_at).total_seconds() for v in resolved_vulns_all)
+            sum(
+                (_aware_utc(v.resolved_at) - _aware_utc(v.detected_at)).total_seconds()
+                for v in resolved_vulns_all
+            )
             / len(resolved_vulns_all)
             / 86400,
             1,
@@ -1897,6 +2039,9 @@ def dashboard(
     # --- Etiquetas / grupos ---
     host_tags_by_id = {h.id: sorted(t.tag for t in h.tags) for h in hosts}
     group_rows = compute_tag_groups(hosts)
+
+    # --- Claves API (integraciones externas) ---
+    api_keys = db.query(models.ApiKey).order_by(models.ApiKey.id.desc()).all()
 
     # --- Verificacion de exploits (PoC) ---
     credential_findings = (
@@ -2049,6 +2194,7 @@ def dashboard(
             "due_soon_vulns": due_soon_vulns,
             "host_tags_by_id": host_tags_by_id,
             "group_rows": group_rows,
+            "api_keys": api_keys,
         },
     )
 

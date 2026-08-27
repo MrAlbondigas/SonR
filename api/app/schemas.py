@@ -80,3 +80,7 @@ class SlaPolicyUpdate(BaseModel):
 
 class HostTagsUpdate(BaseModel):
     tags: list[str]
+
+
+class ApiKeyCreate(BaseModel):
+    name: str
