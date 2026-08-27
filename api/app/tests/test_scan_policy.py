@@ -68,6 +68,90 @@ def test_invalid_quiet_hour_rejected(admin_client):
     assert resp.status_code == 400
 
 
+def test_admin_can_set_extra_networks(admin_client):
+    resp = admin_client.post(
+        "/scan/policy",
+        json={
+            "enabled": True,
+            "interval_seconds": 300,
+            "excluded_ips": [],
+            "extra_networks": ["10.20.0.0/24", "10.20.0.0/24", " 192.168.99.0/24 "],
+            "quiet_hours_start": None,
+            "quiet_hours_end": None,
+        },
+    )
+    assert resp.status_code == 200
+    assert sorted(resp.json()["extra_networks"]) == ["10.20.0.0/24", "192.168.99.0/24"]  # dedupe + trim
+
+    # limpieza para no afectar a otros tests
+    admin_client.post(
+        "/scan/policy",
+        json={"enabled": True, "interval_seconds": 300, "excluded_ips": [], "extra_networks": [], "quiet_hours_start": None, "quiet_hours_end": None},
+    )
+
+
+def test_extra_network_rejects_public_range(admin_client):
+    resp = admin_client.post(
+        "/scan/policy",
+        json={
+            "enabled": True,
+            "interval_seconds": 300,
+            "excluded_ips": [],
+            "extra_networks": ["8.8.8.0/24"],
+            "quiet_hours_start": None,
+            "quiet_hours_end": None,
+        },
+    )
+    assert resp.status_code == 400
+    assert "privado" in resp.json()["detail"].lower()
+
+
+def test_extra_network_rejects_malformed_cidr(admin_client):
+    resp = admin_client.post(
+        "/scan/policy",
+        json={
+            "enabled": True,
+            "interval_seconds": 300,
+            "excluded_ips": [],
+            "extra_networks": ["not-a-network"],
+            "quiet_hours_start": None,
+            "quiet_hours_end": None,
+        },
+    )
+    assert resp.status_code == 400
+
+
+def test_extra_network_rejects_range_too_large(admin_client):
+    resp = admin_client.post(
+        "/scan/policy",
+        json={
+            "enabled": True,
+            "interval_seconds": 300,
+            "excluded_ips": [],
+            "extra_networks": ["10.0.0.0/8"],  # mas grande que el maximo permitido (/16)
+            "quiet_hours_start": None,
+            "quiet_hours_end": None,
+        },
+    )
+    assert resp.status_code == 400
+
+
+def test_extra_network_rejects_too_many_entries(admin_client):
+    many_networks = [f"10.{i}.0.0/24" for i in range(15)]
+    resp = admin_client.post(
+        "/scan/policy",
+        json={
+            "enabled": True,
+            "interval_seconds": 300,
+            "excluded_ips": [],
+            "extra_networks": many_networks,
+            "quiet_hours_start": None,
+            "quiet_hours_end": None,
+        },
+    )
+    assert resp.status_code == 400
+
+
 def test_scan_request_rejected_when_policy_disabled(admin_client):
     admin_client.post(
         "/scan/policy",

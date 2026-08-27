@@ -157,6 +157,7 @@ CREATE TABLE scan_policy (
     enabled BOOLEAN NOT NULL DEFAULT true,
     interval_seconds INTEGER NOT NULL DEFAULT 300,
     excluded_ips TEXT NOT NULL DEFAULT '',
+    extra_networks TEXT NOT NULL DEFAULT '',
     quiet_hours_start INTEGER,
     quiet_hours_end INTEGER,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),

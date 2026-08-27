@@ -67,6 +67,7 @@ class ScanPolicyUpdate(BaseModel):
     enabled: bool
     interval_seconds: int
     excluded_ips: list[str] = []
+    extra_networks: list[str] = []
     quiet_hours_start: int | None = None
     quiet_hours_end: int | None = None
 

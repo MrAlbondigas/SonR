@@ -88,3 +88,54 @@ def test_refine_leaves_software_unchanged_when_ssh_verification_fails():
     sw = host_data["software"][0]
     assert sw["version"] == "9.6"
     assert sw["version_source"] == "network"
+
+
+def test_run_scan_cycle_discovers_hosts_across_local_subnet_and_extra_networks():
+    def fake_discover(net, excluded_ips=None):
+        return {
+            "192.168.1.0/24": ["192.168.1.10", "192.168.1.11"],
+            "10.20.0.0/24": ["10.20.0.5"],
+        }.get(net, [])
+
+    with patch("scanner.local_subnet", return_value="192.168.1.0/24"), \
+         patch("scanner.discover_hosts", side_effect=fake_discover), \
+         patch("scanner.scan_host", return_value={"ip": "x", "software": []}) as mock_scan_host, \
+         patch("scanner.fetch_ssh_credentials", return_value={}), \
+         patch("scanner.requests.post") as mock_post:
+        mock_post.return_value.raise_for_status = lambda: None
+        mock_post.return_value.json = lambda: {"ok": True}
+        scanner.run_scan_cycle(extra_networks=["10.20.0.0/24"])
+
+    scanned_ips = {call.args[0] for call in mock_scan_host.call_args_list}
+    assert scanned_ips == {"192.168.1.10", "192.168.1.11", "10.20.0.5"}
+
+
+def test_run_scan_cycle_dedupes_host_seen_in_multiple_networks():
+    def fake_discover(net, excluded_ips=None):
+        # el mismo host aparece "visible" desde dos redes distintas (solapamiento real
+        # de rangos configurados por error, o un host con rutas hacia ambas redes)
+        return ["192.168.1.10"]
+
+    with patch("scanner.local_subnet", return_value="192.168.1.0/24"), \
+         patch("scanner.discover_hosts", side_effect=fake_discover), \
+         patch("scanner.scan_host", return_value={"ip": "x", "software": []}) as mock_scan_host, \
+         patch("scanner.fetch_ssh_credentials", return_value={}), \
+         patch("scanner.requests.post") as mock_post:
+        mock_post.return_value.raise_for_status = lambda: None
+        mock_post.return_value.json = lambda: {"ok": True}
+        scanner.run_scan_cycle(extra_networks=["10.20.0.0/24"])
+
+    assert mock_scan_host.call_count == 1
+
+
+def test_run_scan_cycle_skips_extra_network_equal_to_local_subnet():
+    with patch("scanner.local_subnet", return_value="192.168.1.0/24"), \
+         patch("scanner.discover_hosts", return_value=[]) as mock_discover, \
+         patch("scanner.fetch_ssh_credentials", return_value={}), \
+         patch("scanner.requests.post") as mock_post:
+        mock_post.return_value.raise_for_status = lambda: None
+        mock_post.return_value.json = lambda: {"ok": True}
+        scanner.run_scan_cycle(extra_networks=["192.168.1.0/24"])
+
+    # no debe escanear la misma red dos veces solo porque tambien aparezca como "extra"
+    assert mock_discover.call_count == 1

@@ -198,16 +198,28 @@ def scan_host(ip: str) -> dict:
     }
 
 
-def run_scan_cycle(excluded_ips: set[str] | None = None):
+def run_scan_cycle(excluded_ips: set[str] | None = None, extra_networks: list[str] | None = None):
     subnet = local_subnet()
     if not subnet:
         print("No se pudo determinar la subred local, saltando ciclo")
         return
 
     excluded_ips = excluded_ips or set()
-    print(f"Escaneando subred {subnet}..." + (f" (excluyendo {len(excluded_ips)} IP(s))" if excluded_ips else ""))
-    live_ips = [ip for ip in discover_hosts(subnet, excluded_ips) if ip not in excluded_ips]
-    print(f"{len(live_ips)} hosts activos encontrados")
+    networks = [subnet] + [n for n in (extra_networks or []) if n != subnet]
+
+    live_ips: list[str] = []
+    seen = set()
+    for net in networks:
+        print(
+            f"Escaneando red {net}..."
+            + (f" (excluyendo {len(excluded_ips)} IP(s))" if excluded_ips else "")
+        )
+        for ip in discover_hosts(net, excluded_ips):
+            if ip in excluded_ips or ip in seen:
+                continue
+            seen.add(ip)
+            live_ips.append(ip)
+    print(f"{len(live_ips)} host(s) activo(s) encontrado(s) en {len(networks)} red(es)")
 
     hosts_payload = [scan_host(ip) for ip in live_ips]
 
@@ -242,6 +254,7 @@ def fetch_policy() -> dict:
         "enabled": True,
         "interval_seconds": SCAN_INTERVAL_SECONDS,
         "excluded_ips": [],
+        "extra_networks": [],
         "quiet_hours_start": None,
         "quiet_hours_end": None,
     }
@@ -287,7 +300,10 @@ if __name__ == "__main__":
             )
         else:
             try:
-                run_scan_cycle(set(policy.get("excluded_ips", [])))
+                run_scan_cycle(
+                    excluded_ips=set(policy.get("excluded_ips", [])),
+                    extra_networks=policy.get("extra_networks", []),
+                )
             except Exception as exc:
                 print(f"Error en ciclo de escaneo: {exc}")
         wait_for_next_cycle(policy.get("interval_seconds", SCAN_INTERVAL_SECONDS))

@@ -147,6 +147,7 @@ class ScanPolicy(Base):
     enabled = Column(Boolean, nullable=False, default=True)
     interval_seconds = Column(Integer, nullable=False, default=300)
     excluded_ips = Column(Text, nullable=False, default="")
+    extra_networks = Column(Text, nullable=False, default="")
     quiet_hours_start = Column(Integer)
     quiet_hours_end = Column(Integer)
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now())

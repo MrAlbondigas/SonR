@@ -828,6 +828,11 @@
               IPs excluidas del escaneo (una por línea — equipos que no son tuyos o que no quieres escanear)
               <textarea id="policy-excluded" rows="3" placeholder="192.168.0.10">{{ scan_policy.excluded_ips | join('\n') }}</textarea>
             </label>
+            <label class="policy-field">
+              Redes adicionales a escanear (una por línea, formato CIDR — además de la red local detectada
+              automáticamente). Solo rangos privados (RFC1918), tamaño máximo /16 por red.
+              <textarea id="policy-extra-networks" rows="3" placeholder="10.20.0.0/24">{{ scan_policy.extra_networks | join('\n') }}</textarea>
+            </label>
             <button type="button" class="scan-btn" onclick="savePolicy()">
               <span class="spinner"></span>
               <span id="policy-save-label">Guardar política</span>
@@ -838,6 +843,7 @@
           <p class="empty-state">
             Escaneo automático: {{ 'activado' if scan_policy.enabled else 'desactivado' }} · cada {{ scan_policy.interval_minutes }} min
             {% if scan_policy.excluded_ips %} · {{ scan_policy.excluded_ips|length }} IP(s) excluida(s){% endif %}
+            {% if scan_policy.extra_networks %} · {{ scan_policy.extra_networks|length }} red(es) adicional(es){% endif %}
             {% if scan_policy.quiet_hours_start is not none and scan_policy.quiet_hours_end is not none %} · silencio {{ "%02d"|format(scan_policy.quiet_hours_start) }}:00–{{ "%02d"|format(scan_policy.quiet_hours_end) }}:00 UTC{% endif %}
           </p>
           {% endif %}
@@ -1866,6 +1872,8 @@
     const intervalMinutes = parseInt(document.getElementById("policy-interval").value, 10) || 5;
     const excludedIps = document.getElementById("policy-excluded").value
       .split("\n").map((s) => s.trim()).filter(Boolean);
+    const extraNetworks = document.getElementById("policy-extra-networks").value
+      .split("\n").map((s) => s.trim()).filter(Boolean);
     const qStart = document.getElementById("policy-quiet-start").value;
     const qEnd = document.getElementById("policy-quiet-end").value;
 
@@ -1879,16 +1887,18 @@
           enabled: enabled,
           interval_seconds: intervalMinutes * 60,
           excluded_ips: excludedIps,
+          extra_networks: extraNetworks,
           quiet_hours_start: qStart === "" ? null : parseInt(qStart, 10),
           quiet_hours_end: qEnd === "" ? null : parseInt(qEnd, 10),
         }),
       });
-      if (!resp.ok) throw new Error("failed");
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || "failed");
       label.textContent = "Guardar política";
       note.textContent = "Política guardada — se aplicará en el próximo ciclo del escáner.";
     } catch (err) {
       label.textContent = "Error, reintenta";
-      note.textContent = "";
+      note.textContent = typeof err.message === "string" ? err.message : "";
     } finally {
       btn.disabled = false; btn.classList.remove("loading");
     }

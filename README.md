@@ -47,6 +47,8 @@ base de datos SQLite aislada — nunca tocan los datos reales de Postgres.
 - [x] Fase 9: enrutado de alertas por etiqueta (webhook/email propio por unidad de negocio, entorno o ubicación)
 - [x] Fase 10: mapeo simplificado a CIS Controls v8 (vista de Cumplimiento)
 - [x] Fase 11: el reporte PDF semanal y la API de solo lectura (/api/v1/export) incorporan SLA, riesgo por grupo y cumplimiento CIS — el mismo dato que se ve en el dashboard, ahora también en todo lo que sale de la herramienta hacia fuera
+- [x] Fase 12: el resumen periódico también se enruta por etiqueta, además de las alertas individuales
+- [x] Fase 13: escaneo multi-red (varios CIDR privados configurables, además de la subred local detectada automáticamente)
 
 ## Precisión del cruce con NVD
 
@@ -143,8 +145,18 @@ de plazo, y rutas de ataque. **No es una certificación oficial de CIS** — cad
 hallazgos pendientes en lo que la herramienta mide para ese control", no cumplimiento del control al completo.
 Es deliberadamente honesto sobre su propio alcance, en la misma línea que el resto del proyecto.
 
+## Escaneo multi-red
+
+Además de la subred local que detecta automáticamente (interfaz de red del propio equipo donde corre el
+escáner), un administrador puede configurar hasta 10 redes adicionales en formato CIDR (vista Parcheo →
+Política de escaneo) — por ejemplo, una VLAN de invitados o una subred de servidores separada. Cada ciclo
+escanea todas las redes configuradas y deduplica los equipos que aparezcan visibles desde más de una. Por
+seguridad, cada red adicional debe ser un rango privado (RFC1918) y de tamaño razonable (máximo /16) — nunca
+un rango público: esta herramienta evalúa redes propias, no habilita escaneo masivo de internet.
+
 ## Limitaciones conocidas
 
-- Las "rutas de ataque" asumen red plana (sin VLANs/segmentación) ya que no se detecta topología de red más allá de la subred local.
+- Las "rutas de ataque" siguen asumiendo red plana dentro de cada subred (sin VLANs/segmentación interna detectada); el escaneo multi-red amplía qué subredes se inventarían, pero no modela cortafuegos ni reglas de enrutamiento entre ellas.
 - El escaneo autenticado verifica la versión de servicios que nmap ya detectó en la red (vía `dpkg-query`); no hace un inventario completo de todos los paquetes instalados en el sistema, solo de los que corresponden a servicios expuestos.
 - La verificación de PoC es intencionadamente no destructiva y solo opera sobre equipos marcados como "de prácticas": el sistema no explota vulnerabilidades de ejecución de código ni intenta ganar acceso más allá de credenciales ya encontradas. El resto de hallazgos se reportan por coincidencia contra bases de datos públicas (NVD, CISA KEV), sin confirmación de explotabilidad real.
+- El escaneo multi-red se ha probado con tests automatizados (descubrimiento, deduplicación, validación de rangos) y contra la subred local real, pero no se ha podido verificar en vivo contra una segunda subred físicamente distinta — el laboratorio de este proyecto solo tiene una red disponible.

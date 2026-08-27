@@ -1,4 +1,5 @@
 import hashlib
+import ipaddress
 import math
 import os
 import secrets
@@ -399,11 +400,45 @@ def policy_to_dict(policy: models.ScanPolicy) -> dict:
         "enabled": policy.enabled,
         "interval_seconds": policy.interval_seconds,
         "excluded_ips": [ip for ip in policy.excluded_ips.split(",") if ip],
+        "extra_networks": [n for n in policy.extra_networks.split(",") if n],
         "quiet_hours_start": policy.quiet_hours_start,
         "quiet_hours_end": policy.quiet_hours_end,
         "updated_at": policy.updated_at,
         "updated_by": policy.updated_by,
     }
+
+
+MAX_EXTRA_NETWORKS = 10
+MIN_EXTRA_NETWORK_PREFIX = 16  # como mucho una /16 (65536 direcciones) por red adicional
+
+
+def validate_extra_networks(raw_networks: list[str]) -> list[str]:
+    """Cada red adicional debe ser un CIDR privado (RFC1918) valido, con un tamano
+    razonable — nunca un rango publico: esta herramienta es para evaluar redes propias,
+    no para habilitar escaneo masivo de internet. Tambien evita, de paso, que un valor
+    mal formado (p.ej. algo que empiece por '-') llegue a la linea de comandos de nmap:
+    solo sobrevive la validacion una cadena que ipaddress reconozca como red valida."""
+    clean = sorted({n.strip() for n in raw_networks if n.strip()})
+    if len(clean) > MAX_EXTRA_NETWORKS:
+        raise HTTPException(
+            status_code=400, detail=f"Como mucho {MAX_EXTRA_NETWORKS} redes adicionales"
+        )
+    for net in clean:
+        try:
+            parsed = ipaddress.ip_network(net, strict=False)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"'{net}' no es un CIDR valido")
+        if not parsed.is_private or parsed.is_loopback or parsed.is_link_local:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{net}' debe ser un rango privado (RFC1918) — no se escanean rangos publicos",
+            )
+        if parsed.version == 4 and parsed.prefixlen < MIN_EXTRA_NETWORK_PREFIX:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{net}' es demasiado grande (minimo /{MIN_EXTRA_NETWORK_PREFIX})",
+            )
+    return clean
 
 
 # --- Plazos de remediacion (SLA) ---
@@ -471,12 +506,14 @@ def set_scan_policy(
     for hour in (payload.quiet_hours_start, payload.quiet_hours_end):
         if hour is not None and not (0 <= hour <= 23):
             raise HTTPException(status_code=400, detail="Las horas deben estar entre 0 y 23")
+    clean_networks = validate_extra_networks(payload.extra_networks)
 
     policy = get_or_create_policy(db)
     policy.enabled = payload.enabled
     policy.interval_seconds = payload.interval_seconds
     clean_ips = sorted({ip.strip() for ip in payload.excluded_ips if ip.strip()})
     policy.excluded_ips = ",".join(clean_ips)
+    policy.extra_networks = ",".join(clean_networks)
     policy.quiet_hours_start = payload.quiet_hours_start
     policy.quiet_hours_end = payload.quiet_hours_end
     policy.updated_at = func.now()
