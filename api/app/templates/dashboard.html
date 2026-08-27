@@ -873,6 +873,20 @@
       </section>
 
       <section>
+        <h2>Resumen periódico</h2>
+        <p class="empty-state" style="margin: 0 0 1rem;">
+          Junto con cada reporte PDF (por defecto, semanal), se envía automáticamente un resumen corto por
+          webhook/email: vulnerabilidades nuevas, resueltas, fuera de plazo (SLA) y credenciales encontradas.
+        </p>
+        <div class="scan-panel hud-frame">
+          <button id="digest-test-btn" class="scan-btn" onclick="digestTest()">
+            <span class="spinner"></span>
+            <span id="digest-test-label">Enviar resumen ahora</span>
+          </button>
+        </div>
+      </section>
+
+      <section>
         <h2>Historial de notificaciones</h2>
         <div class="table-wrap">
         <table>
@@ -2063,6 +2077,22 @@
       const data = await resp.json();
       if (!resp.ok) throw new Error("failed");
       label.textContent = data.delivered ? "Enviada" : (data.configured ? "Fallo el envio" : "Sin email configurado");
+      location.reload();
+    } catch (err) {
+      label.textContent = "Error, reintenta";
+      btn.disabled = false; btn.classList.remove("loading");
+    }
+  }
+
+  async function digestTest() {
+    const btn = document.getElementById("digest-test-btn");
+    const label = document.getElementById("digest-test-label");
+    btn.disabled = true; btn.classList.add("loading"); label.textContent = "Enviando...";
+    try {
+      const resp = await fetch("/reports/digest/test", { method: "POST" });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error("failed");
+      label.textContent = data.delivered ? "Enviado" : "Enviado (sin canales configurados)";
       location.reload();
     } catch (err) {
       label.textContent = "Error, reintenta";

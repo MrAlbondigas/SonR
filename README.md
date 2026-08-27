@@ -42,6 +42,7 @@ base de datos SQLite aislada — nunca tocan los datos reales de Postgres.
 - [x] Fase 4: reportes PDF programados (semanal). Asistente de chat pendiente — necesita una API key de Anthropic propia del proyecto (no incluida por decisión del alumno)
 - [x] Fase 5: cruce exacto por CPE contra NVD, escaneo autenticado por SSH, lista de credenciales por defecto ampliada, verificación no destructiva de PoC en equipos de prácticas, plazos de remediación (SLA) por severidad, alertas por email además de webhook, cifrado en reposo de credenciales guardadas
 - [x] Fase 6: etiquetado de equipos y riesgo agregado por grupo (unidad de negocio, entorno, ubicación)
+- [x] Fase 7: claves API de solo lectura para integraciones externas, resumen periódico automático por email/webhook
 
 ## Precisión del cruce con NVD
 
@@ -97,6 +98,14 @@ Además del webhook saliente (Discord/Slack), las mismas alertas (vulnerabilidad
 credenciales por defecto encontradas, parche aplicado, cuenta bloqueada) pueden enviarse por email vía SMTP.
 Ambos canales son independientes y opcionales; cada intento de envío queda registrado en el historial de
 alertas con su canal y resultado, se haya entregado o no.
+
+## Resumen periódico
+
+Cada vez que el servicio `reporter` genera el reporte PDF (por defecto, semanal), dispara además un resumen
+corto por los mismos canales (webhook/email): equipos monitorizados, vulnerabilidades nuevas y resueltas en
+los últimos 7 días, cuántas están fuera de plazo (SLA) ahora mismo, y credenciales por defecto encontradas.
+Es el recordatorio que te llega al buzón sin tener que entrar al dashboard — también se puede disparar a mano
+desde la vista de Alertas para probarlo.
 
 ## Grupos y etiquetas
 

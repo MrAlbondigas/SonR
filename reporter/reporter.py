@@ -105,6 +105,12 @@ def build_pdf(data: dict, output_path: str):
     pdf.output(output_path)
 
 
+def send_digest():
+    resp = requests.post(f"{API_URL}/reports/digest", headers={"X-API-Key": API_KEY}, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+
 def run_cycle():
     os.makedirs(REPORTS_DIR, exist_ok=True)
     data = fetch_data()
@@ -113,6 +119,14 @@ def run_cycle():
     build_pdf(data, output_path)
     shutil.copyfile(output_path, os.path.join(REPORTS_DIR, "latest.pdf"))
     print(f"Reporte generado: {output_path}")
+
+    try:
+        digest_result = send_digest()
+        print(f"Resumen enviado: entregado={digest_result['delivered']}")
+    except Exception as exc:
+        # el PDF ya se genero correctamente; que falle el resumen por email/webhook
+        # no debe hacer perder el reporte de este ciclo
+        print(f"Error enviando el resumen periodico: {exc}")
 
 
 if __name__ == "__main__":

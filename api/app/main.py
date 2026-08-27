@@ -100,12 +100,17 @@ def send_email_alert(
 
 
 def notify_alert(
-    db: Session, message: str, vulnerability_id: int | None = None, host_id: int | None = None
+    db: Session,
+    message: str,
+    vulnerability_id: int | None = None,
+    host_id: int | None = None,
+    email_subject: str | None = None,
 ) -> bool:
     """Envia la alerta por todos los canales configurados (webhook y/o email) y registra
     un intento por canal en el historial, aunque ese canal no este configurado."""
     webhook_ok = send_webhook_alert(db, message, vulnerability_id=vulnerability_id, host_id=host_id)
-    email_ok = send_email_alert(db, message, vulnerability_id=vulnerability_id, host_id=host_id)
+    email_kwargs = {"subject": email_subject} if email_subject else {}
+    email_ok = send_email_alert(db, message, vulnerability_id=vulnerability_id, host_id=host_id, **email_kwargs)
     return webhook_ok or email_ok
 
 
@@ -1803,6 +1808,72 @@ def download_latest_report():
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Todavia no se ha generado ningun reporte")
     return FileResponse(path, media_type="application/pdf", filename="proyecto-cyber-reporte.pdf")
+
+
+# --- Resumen periodico por email/webhook (lo dispara el servicio reporter en cada ciclo) ---
+
+
+def build_digest_summary(db: Session) -> dict:
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    new_vulns_7d = (
+        db.query(models.Vulnerability).filter(models.Vulnerability.detected_at >= week_ago).count()
+    )
+    new_critical_7d = (
+        db.query(models.Vulnerability)
+        .filter(models.Vulnerability.detected_at >= week_ago, models.Vulnerability.severity == "critical")
+        .count()
+    )
+    resolved_7d = (
+        db.query(models.Vulnerability).filter(models.Vulnerability.resolved_at >= week_ago).count()
+    )
+    now = datetime.now(timezone.utc)
+    overdue_count = (
+        db.query(models.Vulnerability)
+        .join(models.Software)
+        .filter(
+            models.Vulnerability.resolved_at.is_(None),
+            models.Software.removed_at.is_(None),
+            models.Vulnerability.sla_due_at.isnot(None),
+            models.Vulnerability.sla_due_at < now,
+        )
+        .count()
+    )
+    return {
+        "host_count": db.query(models.Host).count(),
+        "new_vulnerabilities_7d": new_vulns_7d,
+        "new_critical_7d": new_critical_7d,
+        "resolved_7d": resolved_7d,
+        "overdue_sla_count": overdue_count,
+        "credential_findings_count": db.query(models.CredentialFinding).count(),
+    }
+
+
+def format_digest_message(summary: dict) -> str:
+    return (
+        f"Resumen semanal de Proyecto Cyber — {summary['host_count']} equipos monitorizados.\n"
+        f"Nuevas vulnerabilidades (7d): {summary['new_vulnerabilities_7d']} "
+        f"({summary['new_critical_7d']} críticas). Resueltas (7d): {summary['resolved_7d']}.\n"
+        f"Fuera de plazo (SLA) ahora mismo: {summary['overdue_sla_count']}. "
+        f"Credenciales por defecto encontradas: {summary['credential_findings_count']}."
+    )
+
+
+@app.post("/reports/digest", dependencies=[Depends(verify_scanner_key)])
+def send_digest(db: Session = Depends(get_db)):
+    summary = build_digest_summary(db)
+    message = format_digest_message(summary)
+    delivered = notify_alert(db, message, email_subject="Resumen semanal — Proyecto Cyber")
+    return {"ok": True, "delivered": delivered, "summary": summary}
+
+
+@app.post("/reports/digest/test")
+def send_digest_test(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
+    """Igual que /reports/digest, pero disparable a mano desde el dashboard (el
+    automatico lo dispara el servicio reporter en cada ciclo)."""
+    summary = build_digest_summary(db)
+    message = format_digest_message(summary)
+    delivered = notify_alert(db, message, email_subject="Resumen semanal — Proyecto Cyber")
+    return {"ok": True, "delivered": delivered, "summary": summary}
 
 
 # --- Datos de demostracion (reversibles) ---
