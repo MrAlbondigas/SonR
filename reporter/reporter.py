@@ -60,6 +60,18 @@ def build_pdf(data: dict, output_path: str):
         pdf.cell(0, 6, "Sin vulnerabilidades cruzadas con CVEs todavia.", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
 
+    # Plazos de remediacion (SLA) fuera de plazo
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.cell(0, 10, "Fuera de plazo de remediacion (SLA)", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 10)
+    if data.get("sla_overdue"):
+        for v in data["sla_overdue"]:
+            line = f"- {v['cve_id']} | {v['software']} en {v['host_ip']} | {v['days_overdue']} dia(s) de retraso ({v['severity'] or '-'})"
+            pdf.multi_cell(0, 6, safe(line), new_x="LMARGIN", new_y="NEXT")
+    else:
+        pdf.cell(0, 6, "Nada fuera de plazo ahora mismo.", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+
     # Rutas de ataque
     pdf.set_font("Helvetica", "B", 13)
     pdf.cell(0, 10, "Rutas de ataque", new_x="LMARGIN", new_y="NEXT")
@@ -101,6 +113,38 @@ def build_pdf(data: dict, output_path: str):
     for h in data["hosts"]:
         line = f"- {h['ip']} | {h['hostname'] or '-'} | {h['vendor'] or '-'} | {h['os_guess'] or '-'}"
         pdf.multi_cell(0, 6, safe(line), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+
+    # Riesgo por grupo (etiquetas)
+    if data.get("group_rows"):
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.cell(0, 10, "Riesgo por grupo", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 10)
+        for g in data["group_rows"]:
+            line = (
+                f"- {g['tag']} | {g['host_count']} equipo(s) | puntuacion total {g['total_score']} "
+                f"| {g['open_vulns']} vulnerabilidad(es) abierta(s) | {g['credential_findings']} credencial(es)"
+            )
+            pdf.multi_cell(0, 6, safe(line), new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(4)
+
+    # Cumplimiento (CIS Controls, mapeo simplificado)
+    if data.get("cis_compliance"):
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.cell(0, 10, "Cumplimiento (mapeo simplificado a CIS Controls v8)", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "I", 8)
+        pdf.set_text_color(100, 100, 100)
+        pdf.multi_cell(
+            0, 5,
+            safe("No es una certificacion oficial de CIS: relaciona cada control con lo que esta herramienta mide de verdad, no con el control completo."),
+            new_x="LMARGIN", new_y="NEXT",
+        )
+        pdf.set_text_color(0, 0, 0)
+        pdf.set_font("Helvetica", "", 10)
+        for c in data["cis_compliance"]:
+            status = "Cubierto" if c["ok"] else "Atencion"
+            line = f"- {c['id']} ({c['name']}): {status} - {c['detail']}"
+            pdf.multi_cell(0, 6, safe(line), new_x="LMARGIN", new_y="NEXT")
 
     pdf.output(output_path)
 

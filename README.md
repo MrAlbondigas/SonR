@@ -11,7 +11,7 @@ Plataforma de gestión de vulnerabilidades para la red local: descubre equipos, 
 - **scanner** — Python + nmap, descubre equipos en la red local (`network_mode: host`) y envía los resultados a la API.
 - **enricher** — cruza cada software detectado con la API de NVD (CVEs) y el catálogo CISA KEV (exploits activamente explotados).
 - **credcheck** — prueba credenciales por defecto muy conocidas y documentadas contra SSH/FTP/Telnet/HTTP Basic Auth expuestos, priorizando las específicas del fabricante detectado (por MAC) antes que la lista genérica.
-- **reporter** — genera un reporte PDF semanal (top prioridades, rutas de ataque, credenciales encontradas, timeline) descargable desde el dashboard.
+- **reporter** — genera un reporte PDF semanal (top prioridades, plazos SLA vencidos, rutas de ataque, credenciales encontradas, timeline, riesgo por grupo, cumplimiento CIS) descargable desde el dashboard, y dispara el resumen periódico por webhook/email en el mismo ciclo.
 - **dashboard** — servido por la propia API (plantillas Jinja2), muestra inventario, prioridades, rutas de ataque y timeline en tiempo real.
 
 ## Uso
@@ -46,6 +46,7 @@ base de datos SQLite aislada — nunca tocan los datos reales de Postgres.
 - [x] Fase 8: rol "analista" (RBAC de tres niveles) y gestión de usuarios desde el dashboard
 - [x] Fase 9: enrutado de alertas por etiqueta (webhook/email propio por unidad de negocio, entorno o ubicación)
 - [x] Fase 10: mapeo simplificado a CIS Controls v8 (vista de Cumplimiento)
+- [x] Fase 11: el reporte PDF semanal incorpora SLA, riesgo por grupo y cumplimiento CIS — el mismo dato que se ve en el dashboard, ahora también en el documento que de verdad circula
 
 ## Precisión del cruce con NVD
 

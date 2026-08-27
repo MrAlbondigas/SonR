@@ -1845,8 +1845,7 @@ def set_sla_policy(
     return {"ok": True, **sla_policy_to_dict(policy)}
 
 
-@app.get("/sla/overdue")
-def get_overdue_vulnerabilities(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_analyst_or_admin)):
+def compute_overdue_vulnerabilities(db: Session) -> list[dict]:
     now = datetime.now(timezone.utc)
     rows = (
         db.query(models.Vulnerability)
@@ -1874,6 +1873,11 @@ def get_overdue_vulnerabilities(db: Session = Depends(get_db), admin: models.Use
     ]
 
 
+@app.get("/sla/overdue")
+def get_overdue_vulnerabilities(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_analyst_or_admin)):
+    return compute_overdue_vulnerabilities(db)
+
+
 # --- Reportes ---
 
 
@@ -1897,6 +1901,9 @@ def report_data(db: Session = Depends(get_db)):
     )
     attack_paths = compute_attack_paths(db)
     credential_findings = db.query(models.CredentialFinding).all()
+    overdue_vulns = compute_overdue_vulnerabilities(db)
+    cis_compliance = compute_cis_compliance(db)
+    group_rows = compute_tag_groups(hosts)
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -1925,6 +1932,20 @@ def report_data(db: Session = Depends(get_db)):
             {"host_ip": c.host.ip, "port": c.port, "service": c.service, "username": c.username}
             for c in credential_findings
         ],
+        "sla_overdue": [
+            {
+                "cve_id": v["cve_id"],
+                "severity": v["severity"],
+                "host_ip": v["host_ip"],
+                "software": v["software"],
+                "days_overdue": v["days_overdue"],
+            }
+            for v in overdue_vulns
+        ],
+        "cis_compliance": [
+            {"id": c["id"], "name": c["name"], "ok": c["ok"], "detail": c["detail"]} for c in cis_compliance
+        ],
+        "group_rows": group_rows,
     }
 
 
