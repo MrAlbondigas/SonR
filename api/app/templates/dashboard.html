@@ -586,6 +586,11 @@
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17 L9.5 10 L14 14.5 L21 6"/><path d="M15 6 H21 V12"/></svg></span>
           <span class="label-text">Tendencia</span>
         </a>
+        <a class="nav-item {{ 'alert' if cis_compliance|rejectattr('ok')|list|length else '' }}" data-view="cumplimiento" title="Cumplimiento">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12 l2 2 4-4"/><rect x="4" y="4" width="16" height="16" rx="2.4"/></svg></span>
+          <span class="label-text">Cumplimiento</span>
+          <span class="count">{{ cis_compliance|rejectattr('ok')|list|length }}</span>
+        </a>
 
         {% if can_operate %}
         <div class="nav-group-label label-text">Sistema</div>
@@ -1735,6 +1740,46 @@
             </tr>
             {% else %}
             <tr><td colspan="5" class="muted">Todavía no hay equipos escaneados.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- Cumplimiento -->
+    <div class="view" data-view="cumplimiento">
+      <h1>Cumplimiento</h1>
+      <p class="empty-state" style="margin: 0 0 1.2rem;">
+        Mapeo simplificado a <strong>CIS Controls v8</strong>, con fines de portfolio — no es una certificación
+        oficial de CIS. Cada control listado tiene sub-requisitos reales que esta herramienta no evalúa
+        (formación, gestión de logs, copias de seguridad...); "cubierto" aquí significa que no hay hallazgos
+        pendientes en lo que la herramienta sí mide para ese control, no que se cumpla el control al completo.
+      </p>
+      <section>
+        <div class="stat-row">
+          <div class="stat-tile" style="--tile-accent: {{ 'var(--status-good)' if not (cis_compliance|rejectattr('ok')|list) else 'var(--status-warning)' }};">
+            <div class="value">{{ cis_compliance|selectattr('ok')|list|length }}/{{ cis_compliance|length }}</div>
+            <div class="label">Controles sin hallazgos pendientes</div>
+          </div>
+        </div>
+      </section>
+      <section>
+        <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Control</th><th>Qué mide la herramienta</th><th>Estado</th></tr>
+          </thead>
+          <tbody>
+            {% for c in cis_compliance %}
+            <tr>
+              <td><strong>{{ c.id }}</strong><br><span class="muted">{{ c.name }}</span></td>
+              <td class="muted">{{ c.evidence }}</td>
+              <td>
+                <span class="badge {{ 'count' if c.ok else 'sev-medium' }}">{{ 'Cubierto' if c.ok else 'Atención' }}</span>
+                <div class="muted" style="font-size: 0.76rem; margin-top: 0.25rem;">{{ c.detail }}</div>
+              </td>
+            </tr>
             {% endfor %}
           </tbody>
         </table>

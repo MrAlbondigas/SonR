@@ -1259,6 +1259,92 @@ def list_attack_paths(db: Session = Depends(get_db)):
     return compute_attack_paths(db)
 
 
+# --- Cumplimiento: mapeo simplificado a CIS Controls v8 ---
+# Con fines educativos/de portfolio, no es una certificacion oficial de CIS: relaciona cada
+# control con los hallazgos que ESTA herramienta mide de verdad. Cada control real de CIS
+# tiene sub-requisitos que este proyecto no evalua (formacion, gestion de logs, backups...),
+# asi que "cubierto" aqui significa "sin hallazgos pendientes en lo que la herramienta mide
+# para ese control", no "cumples el control al completo".
+
+CIS_CONTROLS = [
+    {
+        "id": "CIS 1",
+        "name": "Inventario y control de activos empresariales",
+        "evidence": "Equipos descubiertos activamente en la red mediante escaneo periódico.",
+    },
+    {
+        "id": "CIS 5",
+        "name": "Gestión de cuentas",
+        "evidence": "Credenciales por defecto/débiles detectadas en servicios expuestos (SSH/FTP/Telnet/HTTP Basic).",
+    },
+    {
+        "id": "CIS 7",
+        "name": "Gestión continua de vulnerabilidades",
+        "evidence": "Vulnerabilidades abiertas cruzadas con NVD/CISA KEV, con plazos de remediación (SLA) por severidad.",
+    },
+    {
+        "id": "CIS 12",
+        "name": "Gestión de infraestructura de red",
+        "evidence": "Rutas de ataque por movimiento lateral detectadas en ausencia de segmentación de red.",
+    },
+]
+
+
+def compute_cis_compliance(db: Session) -> list[dict]:
+    host_count = db.query(models.Host).count()
+    credential_count = db.query(models.CredentialFinding).count()
+
+    open_vulns_all = (
+        db.query(models.Vulnerability)
+        .join(models.Software)
+        .filter(models.Vulnerability.resolved_at.is_(None), models.Software.removed_at.is_(None))
+        .all()
+    )
+    critical_count = sum(1 for v in open_vulns_all if v.severity == "critical")
+    kev_count = sum(1 for v in open_vulns_all if v.known_exploited)
+
+    now = datetime.now(timezone.utc)
+    overdue_count = sum(1 for v in open_vulns_all if v.sla_due_at and _aware_utc(v.sla_due_at) < now)
+    attack_path_count = len(compute_attack_paths(db))
+
+    results = []
+    for control in CIS_CONTROLS:
+        if control["id"] == "CIS 1":
+            ok = host_count > 0
+            detail = f"{host_count} equipo(s) inventariado(s)."
+        elif control["id"] == "CIS 5":
+            ok = credential_count == 0
+            detail = (
+                "Sin credenciales por defecto detectadas."
+                if ok
+                else f"{credential_count} credencial(es) por defecto encontrada(s)."
+            )
+        elif control["id"] == "CIS 7":
+            ok = critical_count == 0 and kev_count == 0 and overdue_count == 0
+            parts = []
+            if critical_count:
+                parts.append(f"{critical_count} vulnerabilidad(es) crítica(s) abierta(s)")
+            if kev_count:
+                parts.append(f"{kev_count} con exploit conocido (KEV)")
+            if overdue_count:
+                parts.append(f"{overdue_count} fuera de plazo (SLA)")
+            detail = "Sin hallazgos pendientes." if ok else "; ".join(parts) + "."
+        else:  # CIS 12
+            ok = attack_path_count == 0
+            detail = (
+                "Sin rutas de ataque activas detectadas."
+                if ok
+                else f"{attack_path_count} ruta(s) de ataque activa(s) por movimiento lateral."
+            )
+        results.append({**control, "ok": ok, "detail": detail})
+    return results
+
+
+@app.get("/compliance/cis")
+def get_cis_compliance(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_analyst_or_admin)):
+    return compute_cis_compliance(db)
+
+
 # --- Parcheo automatico por SSH (solo equipos con SSH abierto y credenciales guardadas) ---
 
 PACKAGE_NAME_OVERRIDES = {
@@ -2254,6 +2340,9 @@ def dashboard(
     for g in group_rows:
         g["route"] = alert_route_by_tag.get(g["tag"])
 
+    # --- Cumplimiento (CIS Controls, mapeo simplificado) ---
+    cis_compliance = compute_cis_compliance(db)
+
     # --- Claves API (integraciones externas) ---
     api_keys = db.query(models.ApiKey).order_by(models.ApiKey.id.desc()).all()
 
@@ -2415,6 +2504,7 @@ def dashboard(
             "group_rows": group_rows,
             "api_keys": api_keys,
             "team_users": team_users,
+            "cis_compliance": cis_compliance,
         },
     )
 

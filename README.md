@@ -45,6 +45,7 @@ base de datos SQLite aislada — nunca tocan los datos reales de Postgres.
 - [x] Fase 7: claves API de solo lectura para integraciones externas, resumen periódico automático por email/webhook
 - [x] Fase 8: rol "analista" (RBAC de tres niveles) y gestión de usuarios desde el dashboard
 - [x] Fase 9: enrutado de alertas por etiqueta (webhook/email propio por unidad de negocio, entorno o ubicación)
+- [x] Fase 10: mapeo simplificado a CIS Controls v8 (vista de Cumplimiento)
 
 ## Precisión del cruce con NVD
 
@@ -128,6 +129,16 @@ esperaría un responsable de una unidad de negocio, no solo el equipo técnico.
 Cada etiqueta puede tener además su propio webhook y/o email de destino (vista Grupos → "Alertas por
 etiqueta"). No sustituye a los canales globales — los complementa: el admin sigue viendo todas las alertas,
 y quien reciba el canal de "producción" recibe solo las suyas, sin ruido del resto de la red.
+
+## Cumplimiento (mapeo a CIS Controls)
+
+Vista "Cumplimiento" que relaciona 4 controles de CIS Controls v8 (Inventario de activos, Gestión de cuentas,
+Gestión continua de vulnerabilidades, Gestión de infraestructura de red) con hallazgos que la herramienta mide
+de verdad: equipos inventariados, credenciales por defecto, vulnerabilidades críticas/con exploit conocido/fuera
+de plazo, y rutas de ataque. **No es una certificación oficial de CIS** — cada control real tiene sub-requisitos
+(formación, gestión de logs, copias de seguridad...) que este proyecto no evalúa; "cubierto" significa "sin
+hallazgos pendientes en lo que la herramienta mide para ese control", no cumplimiento del control al completo.
+Es deliberadamente honesto sobre su propio alcance, en la misma línea que el resto del proyecto.
 
 ## Limitaciones conocidas
 
