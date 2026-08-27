@@ -1965,12 +1965,16 @@ def api_export(db: Session = Depends(get_db)):
     )
     host_tags_by_id = {h.id: sorted(t.tag for t in h.tags) for h in hosts}
     host_risks = {r["host_id"]: r for r in (compute_host_risk(h) for h in hosts)}
+    overdue_count = sum(
+        1 for v in open_vulns_all if v.sla_due_at and _aware_utc(v.sla_due_at) < now
+    )
 
     return {
         "generated_at": now.isoformat(),
         "host_count": len(hosts),
         "network_risk_score": sum(r["score"] for r in host_risks.values()),
         "credential_findings_count": db.query(models.CredentialFinding).count(),
+        "sla_overdue_count": overdue_count,
         "hosts": [
             {
                 "ip": h.ip,
@@ -1993,6 +1997,11 @@ def api_export(db: Session = Depends(get_db)):
                 "sla_due_at": v.sla_due_at.isoformat() if v.sla_due_at else None,
             }
             for v in open_vulns_all
+        ],
+        "group_risk": compute_tag_groups(hosts),
+        "cis_compliance": [
+            {"id": c["id"], "name": c["name"], "ok": c["ok"], "detail": c["detail"]}
+            for c in compute_cis_compliance(db)
         ],
     }
 

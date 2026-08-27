@@ -46,7 +46,7 @@ base de datos SQLite aislada — nunca tocan los datos reales de Postgres.
 - [x] Fase 8: rol "analista" (RBAC de tres niveles) y gestión de usuarios desde el dashboard
 - [x] Fase 9: enrutado de alertas por etiqueta (webhook/email propio por unidad de negocio, entorno o ubicación)
 - [x] Fase 10: mapeo simplificado a CIS Controls v8 (vista de Cumplimiento)
-- [x] Fase 11: el reporte PDF semanal incorpora SLA, riesgo por grupo y cumplimiento CIS — el mismo dato que se ve en el dashboard, ahora también en el documento que de verdad circula
+- [x] Fase 11: el reporte PDF semanal y la API de solo lectura (/api/v1/export) incorporan SLA, riesgo por grupo y cumplimiento CIS — el mismo dato que se ve en el dashboard, ahora también en todo lo que sale de la herramienta hacia fuera
 
 ## Precisión del cruce con NVD
 

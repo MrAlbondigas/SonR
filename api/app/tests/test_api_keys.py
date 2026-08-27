@@ -123,3 +123,30 @@ def test_export_does_not_expose_credential_usernames(admin_client, scanner_heade
     assert resp.status_code == 200
     assert "credential_findings_count" in resp.json()
     assert "admin" not in resp.text
+
+
+def test_export_includes_sla_group_and_compliance_signals(admin_client, scanner_headers, db_session):
+    from datetime import datetime, timedelta, timezone
+
+    ip = "10.99.0.82"
+    _ingest_host_with_vuln(admin_client, scanner_headers, ip)
+    host = db_session.query(models.Host).filter(models.Host.ip == ip).first()
+    admin_client.post(f"/hosts/{host.id}/tags", json={"tags": ["export-test-tag"]})
+    software = db_session.query(models.Software).filter(models.Software.host_id == host.id).first()
+    db_session.add(
+        models.Vulnerability(
+            software_id=software.id,
+            cve_id="CVE-APIKEY-0002",
+            severity="high",
+            cvss=7.5,
+            sla_due_at=datetime.now(timezone.utc) - timedelta(days=1),
+        )
+    )
+    db_session.commit()
+
+    created = admin_client.post("/api-keys", json={"name": "signals-check"}).json()
+    data = admin_client.get("/api/v1/export", headers={"X-API-Key": created["key"]}).json()
+
+    assert data["sla_overdue_count"] >= 1
+    assert any(g["tag"] == "export-test-tag" for g in data["group_risk"])
+    assert {c["id"] for c in data["cis_compliance"]} == {"CIS 1", "CIS 5", "CIS 7", "CIS 12"}
