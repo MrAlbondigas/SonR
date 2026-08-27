@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 from app import models
-from app.main import build_digest_summary, format_digest_message
+from app.main import build_digest_summary, format_digest_message, run_digest_cycle
 
 
 def _ingest_host(client, scanner_headers, ip):
@@ -91,6 +92,69 @@ def test_digest_endpoint_sends_notification_and_logs_alert(client, scanner_heade
 def test_digest_test_endpoint_requires_admin(client):
     resp = client.post("/reports/digest/test")
     assert resp.status_code == 401
+
+
+def test_build_digest_summary_scoped_to_tag_only_counts_tagged_hosts(admin_client, scanner_headers, db_session):
+    ip_tagged, ip_other = "10.99.3.10", "10.99.3.11"
+    _ingest_host(admin_client, scanner_headers, ip_tagged)
+    _ingest_host(admin_client, scanner_headers, ip_other)
+    host_tagged = db_session.query(models.Host).filter(models.Host.ip == ip_tagged).first()
+    host_other = db_session.query(models.Host).filter(models.Host.ip == ip_other).first()
+    admin_client.post(f"/hosts/{host_tagged.id}/tags", json={"tags": ["digest-scope-t1"]})
+
+    software_tagged = db_session.query(models.Software).filter(models.Software.host_id == host_tagged.id).first()
+    software_other = db_session.query(models.Software).filter(models.Software.host_id == host_other.id).first()
+    now = datetime.now(timezone.utc)
+    db_session.add_all([
+        models.Vulnerability(software_id=software_tagged.id, cve_id="CVE-DIGSCOPE-0001", severity="critical", cvss=9.0, detected_at=now),
+        models.Vulnerability(software_id=software_other.id, cve_id="CVE-DIGSCOPE-0002", severity="critical", cvss=9.0, detected_at=now),
+    ])
+    db_session.commit()
+
+    scoped = build_digest_summary(db_session, tag="digest-scope-t1")
+    assert scoped["host_count"] == 1
+    assert scoped["new_vulnerabilities_7d"] == 1
+    assert scoped["new_critical_7d"] == 1
+
+
+def test_run_digest_cycle_sends_tag_specific_summary_to_configured_route(admin_client, scanner_headers, db_session):
+    ip = "10.99.3.12"
+    _ingest_host(admin_client, scanner_headers, ip)
+    host = db_session.query(models.Host).filter(models.Host.ip == ip).first()
+    admin_client.post(f"/hosts/{host.id}/tags", json={"tags": ["digest-scope-t2"]})
+    admin_client.post(
+        "/tags/digest-scope-t2/alert-route",
+        json={"webhook_url": "https://hooks.example.com/digest-t2", "email_to": None},
+    )
+
+    with patch("app.main.send_webhook_alert", return_value=True) as mock_webhook, \
+         patch("app.main.send_email_alert", return_value=True) as mock_email, \
+         patch("app.main.notify_alert", return_value=True) as mock_notify:
+        result = run_digest_cycle(db_session)
+
+    mock_notify.assert_called_once()
+    assert any(
+        c.kwargs.get("webhook_url") == "https://hooks.example.com/digest-t2"
+        and c.kwargs.get("channel") == "webhook:digest-scope-t2"
+        for c in mock_webhook.call_args_list
+    )
+    assert mock_email.call_count == 0  # no email_to configurado para esta etiqueta
+    assert "digest-scope-t2" in result["tag_summaries"]
+
+
+def test_run_digest_cycle_skips_tag_route_with_no_hosts_currently_tagged(admin_client, db_session):
+    admin_client.post(
+        "/tags/digest-scope-empty-t3/alert-route", json={"webhook_url": "https://hooks.example.com/empty"}
+    )
+
+    with patch("app.main.send_webhook_alert", return_value=True) as mock_webhook, \
+         patch("app.main.notify_alert", return_value=True):
+        result = run_digest_cycle(db_session)
+
+    assert "digest-scope-empty-t3" not in result["tag_summaries"]
+    assert not any(
+        c.kwargs.get("channel") == "webhook:digest-scope-empty-t3" for c in mock_webhook.call_args_list
+    )
 
 
 def test_digest_test_endpoint_works_for_admin(admin_client):

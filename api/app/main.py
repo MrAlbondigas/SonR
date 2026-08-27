@@ -2069,44 +2069,49 @@ def download_latest_report():
 # --- Resumen periodico por email/webhook (lo dispara el servicio reporter en cada ciclo) ---
 
 
-def build_digest_summary(db: Session) -> dict:
+def build_digest_summary(db: Session, tag: str | None = None) -> dict:
+    """Si se indica una etiqueta, todo el resumen se limita a los equipos que la tienen —
+    asi el destino configurado en /tags/{tag}/alert-route recibe solo lo suyo."""
     week_ago = datetime.now(timezone.utc) - timedelta(days=7)
-    new_vulns_7d = (
-        db.query(models.Vulnerability).filter(models.Vulnerability.detected_at >= week_ago).count()
-    )
-    new_critical_7d = (
-        db.query(models.Vulnerability)
-        .filter(models.Vulnerability.detected_at >= week_ago, models.Vulnerability.severity == "critical")
-        .count()
-    )
-    resolved_7d = (
-        db.query(models.Vulnerability).filter(models.Vulnerability.resolved_at >= week_ago).count()
-    )
     now = datetime.now(timezone.utc)
-    overdue_count = (
-        db.query(models.Vulnerability)
-        .join(models.Software)
-        .filter(
-            models.Vulnerability.resolved_at.is_(None),
-            models.Software.removed_at.is_(None),
-            models.Vulnerability.sla_due_at.isnot(None),
-            models.Vulnerability.sla_due_at < now,
-        )
-        .count()
-    )
+
+    host_query = db.query(models.Host)
+    if tag:
+        host_query = host_query.join(models.HostTag).filter(models.HostTag.tag == tag)
+    host_ids = [h.id for h in host_query.all()]
+
+    vuln_base = db.query(models.Vulnerability).join(models.Software)
+    credential_query = db.query(models.CredentialFinding)
+    if tag:
+        vuln_base = vuln_base.filter(models.Software.host_id.in_(host_ids))
+        credential_query = credential_query.filter(models.CredentialFinding.host_id.in_(host_ids))
+
+    new_vulns_7d = vuln_base.filter(models.Vulnerability.detected_at >= week_ago).count()
+    new_critical_7d = vuln_base.filter(
+        models.Vulnerability.detected_at >= week_ago, models.Vulnerability.severity == "critical"
+    ).count()
+    resolved_7d = vuln_base.filter(models.Vulnerability.resolved_at >= week_ago).count()
+    overdue_count = vuln_base.filter(
+        models.Vulnerability.resolved_at.is_(None),
+        models.Software.removed_at.is_(None),
+        models.Vulnerability.sla_due_at.isnot(None),
+        models.Vulnerability.sla_due_at < now,
+    ).count()
+
     return {
-        "host_count": db.query(models.Host).count(),
+        "host_count": len(host_ids),
         "new_vulnerabilities_7d": new_vulns_7d,
         "new_critical_7d": new_critical_7d,
         "resolved_7d": resolved_7d,
         "overdue_sla_count": overdue_count,
-        "credential_findings_count": db.query(models.CredentialFinding).count(),
+        "credential_findings_count": credential_query.count(),
     }
 
 
-def format_digest_message(summary: dict) -> str:
+def format_digest_message(summary: dict, tag: str | None = None) -> str:
+    scope = f" (grupo: {tag})" if tag else ""
     return (
-        f"Resumen semanal de Proyecto Cyber — {summary['host_count']} equipos monitorizados.\n"
+        f"Resumen semanal de Proyecto Cyber{scope} — {summary['host_count']} equipos monitorizados.\n"
         f"Nuevas vulnerabilidades (7d): {summary['new_vulnerabilities_7d']} "
         f"({summary['new_critical_7d']} críticas). Resueltas (7d): {summary['resolved_7d']}.\n"
         f"Fuera de plazo (SLA) ahora mismo: {summary['overdue_sla_count']}. "
@@ -2114,22 +2119,44 @@ def format_digest_message(summary: dict) -> str:
     )
 
 
-@app.post("/reports/digest", dependencies=[Depends(verify_scanner_key)])
-def send_digest(db: Session = Depends(get_db)):
+def run_digest_cycle(db: Session) -> dict:
     summary = build_digest_summary(db)
     message = format_digest_message(summary)
     delivered = notify_alert(db, message, email_subject="Resumen semanal — Proyecto Cyber")
-    return {"ok": True, "delivered": delivered, "summary": summary}
+
+    # ademas del resumen global, cada etiqueta con un destino de alertas configurado
+    # recibe su propio resumen, limitado a sus equipos (mismo principio que el enrutado
+    # de eventos: complementa al canal global, no lo sustituye)
+    tag_summaries = {}
+    for route in db.query(models.TagAlertRoute).all():
+        if not route.webhook_url and not route.email_to:
+            continue
+        tag_summary = build_digest_summary(db, tag=route.tag)
+        if tag_summary["host_count"] == 0:
+            continue
+        tag_message = format_digest_message(tag_summary, tag=route.tag)
+        if route.webhook_url:
+            send_webhook_alert(db, tag_message, webhook_url=route.webhook_url, channel=f"webhook:{route.tag}")
+        if route.email_to:
+            send_email_alert(
+                db, tag_message, email_to=route.email_to, channel=f"email:{route.tag}",
+                subject=f"Resumen semanal — {route.tag}",
+            )
+        tag_summaries[route.tag] = tag_summary
+
+    return {"ok": True, "delivered": delivered, "summary": summary, "tag_summaries": tag_summaries}
+
+
+@app.post("/reports/digest", dependencies=[Depends(verify_scanner_key)])
+def send_digest(db: Session = Depends(get_db)):
+    return run_digest_cycle(db)
 
 
 @app.post("/reports/digest/test")
 def send_digest_test(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
     """Igual que /reports/digest, pero disparable a mano desde el dashboard (el
     automatico lo dispara el servicio reporter en cada ciclo)."""
-    summary = build_digest_summary(db)
-    message = format_digest_message(summary)
-    delivered = notify_alert(db, message, email_subject="Resumen semanal — Proyecto Cyber")
-    return {"ok": True, "delivered": delivered, "summary": summary}
+    return run_digest_cycle(db)
 
 
 # --- Datos de demostracion (reversibles) ---

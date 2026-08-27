@@ -109,7 +109,9 @@ Cada vez que el servicio `reporter` genera el reporte PDF (por defecto, semanal)
 corto por los mismos canales (webhook/email): equipos monitorizados, vulnerabilidades nuevas y resueltas en
 los últimos 7 días, cuántas están fuera de plazo (SLA) ahora mismo, y credenciales por defecto encontradas.
 Es el recordatorio que te llega al buzón sin tener que entrar al dashboard — también se puede disparar a mano
-desde la vista de Alertas para probarlo.
+desde la vista de Alertas para probarlo. Además del resumen global, cada etiqueta con un destino de alertas
+configurado (vista Grupos) recibe su propio resumen semanal, limitado a sus equipos — el mismo principio que
+el enrutado de alertas individuales: complementa al canal global, no lo sustituye.
 
 ## Roles de equipo
 
