@@ -37,13 +37,21 @@ EMAIL_CONFIGURED = bool(SMTP_HOST and ALERT_EMAIL_TO)
 
 
 def send_webhook_alert(
-    db: Session, message: str, vulnerability_id: int | None = None, host_id: int | None = None
+    db: Session,
+    message: str,
+    vulnerability_id: int | None = None,
+    host_id: int | None = None,
+    webhook_url: str | None = None,
+    channel: str = "webhook",
 ) -> bool:
+    """webhook_url permite enrutar a un destino distinto del global (p. ej. el webhook
+    configurado para una etiqueta concreta); si no se indica, usa ALERT_WEBHOOK_URL."""
+    target_url = webhook_url if webhook_url is not None else ALERT_WEBHOOK_URL
     success = False
-    if ALERT_WEBHOOK_URL:
+    if target_url:
         try:
             resp = requests.post(
-                ALERT_WEBHOOK_URL,
+                target_url,
                 json={"content": message, "text": message},
                 timeout=6,
             )
@@ -54,7 +62,7 @@ def send_webhook_alert(
         models.Alert(
             vulnerability_id=vulnerability_id,
             host_id=host_id,
-            channel="webhook",
+            channel=channel,
             description=message,
             success=success,
         )
@@ -69,14 +77,19 @@ def send_email_alert(
     vulnerability_id: int | None = None,
     host_id: int | None = None,
     subject: str = "Proyecto Cyber — alerta de seguridad",
+    email_to: str | None = None,
+    channel: str = "email",
 ) -> bool:
+    """email_to permite enrutar a un destinatario distinto del global (p. ej. el email
+    configurado para una etiqueta concreta); si no se indica, usa ALERT_EMAIL_TO."""
+    target_to = email_to if email_to is not None else ALERT_EMAIL_TO
     success = False
-    if SMTP_HOST and ALERT_EMAIL_TO:
+    if SMTP_HOST and target_to:
         try:
             email_msg = EmailMessage()
             email_msg["Subject"] = subject
             email_msg["From"] = ALERT_EMAIL_FROM
-            email_msg["To"] = ALERT_EMAIL_TO
+            email_msg["To"] = target_to
             email_msg.set_content(message)
             with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=8) as server:
                 server.starttls()
@@ -90,7 +103,7 @@ def send_email_alert(
         models.Alert(
             vulnerability_id=vulnerability_id,
             host_id=host_id,
-            channel="email",
+            channel=channel,
             description=message,
             success=success,
         )
@@ -106,11 +119,32 @@ def notify_alert(
     host_id: int | None = None,
     email_subject: str | None = None,
 ) -> bool:
-    """Envia la alerta por todos los canales configurados (webhook y/o email) y registra
-    un intento por canal en el historial, aunque ese canal no este configurado."""
+    """Envia la alerta por todos los canales globales configurados (webhook y/o email) y
+    registra un intento por canal en el historial, aunque ese canal no este configurado.
+    Si el evento esta ligado a un equipo, ADEMAS lo reenvia a cualquier destino propio de
+    las etiquetas de ese equipo (sin sustituir al canal global — un responsable de
+    "produccion" puede recibir solo lo suyo sin que el admin deje de ver todo)."""
     webhook_ok = send_webhook_alert(db, message, vulnerability_id=vulnerability_id, host_id=host_id)
     email_kwargs = {"subject": email_subject} if email_subject else {}
     email_ok = send_email_alert(db, message, vulnerability_id=vulnerability_id, host_id=host_id, **email_kwargs)
+
+    if host_id:
+        host = db.query(models.Host).filter(models.Host.id == host_id).first()
+        tag_names = {t.tag for t in host.tags} if host else set()
+        if tag_names:
+            routes = db.query(models.TagAlertRoute).filter(models.TagAlertRoute.tag.in_(tag_names)).all()
+            for route in routes:
+                if route.webhook_url:
+                    send_webhook_alert(
+                        db, message, vulnerability_id=vulnerability_id, host_id=host_id,
+                        webhook_url=route.webhook_url, channel=f"webhook:{route.tag}",
+                    )
+                if route.email_to:
+                    send_email_alert(
+                        db, message, vulnerability_id=vulnerability_id, host_id=host_id,
+                        email_to=route.email_to, channel=f"email:{route.tag}", **email_kwargs,
+                    )
+
     return webhook_ok or email_ok
 
 
@@ -1550,6 +1584,62 @@ def list_tag_groups(db: Session = Depends(get_db), admin: models.User = Depends(
     return compute_tag_groups(hosts)
 
 
+# --- Enrutado de alertas por etiqueta (p. ej. "produccion" -> su propio webhook/email) ---
+
+
+@app.get("/alert-routes")
+def list_alert_routes(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
+    rows = db.query(models.TagAlertRoute).order_by(models.TagAlertRoute.tag).all()
+    return [
+        {
+            "tag": r.tag,
+            "webhook_url": r.webhook_url,
+            "email_to": r.email_to,
+            "updated_at": r.updated_at,
+            "updated_by": r.updated_by,
+        }
+        for r in rows
+    ]
+
+
+@app.post("/tags/{tag}/alert-route")
+def set_tag_alert_route(
+    tag: str,
+    payload: schemas.TagAlertRouteUpdate,
+    db: Session = Depends(get_db),
+    admin: models.User = Depends(auth.require_admin),
+):
+    webhook_url = (payload.webhook_url or "").strip() or None
+    email_to = (payload.email_to or "").strip() or None
+
+    route = db.query(models.TagAlertRoute).filter(models.TagAlertRoute.tag == tag).first()
+    if not webhook_url and not email_to:
+        # sin ningun destino, no tiene sentido guardar la fila: se borra si existia
+        if route:
+            db.delete(route)
+            db.commit()
+        return {"ok": True, "tag": tag, "webhook_url": None, "email_to": None}
+
+    if route is None:
+        route = models.TagAlertRoute(tag=tag)
+        db.add(route)
+    route.webhook_url = webhook_url
+    route.email_to = email_to
+    route.updated_at = func.now()
+    route.updated_by = admin.username
+    db.commit()
+    return {"ok": True, "tag": tag, "webhook_url": route.webhook_url, "email_to": route.email_to}
+
+
+@app.delete("/tags/{tag}/alert-route")
+def delete_tag_alert_route(
+    tag: str, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)
+):
+    db.query(models.TagAlertRoute).filter(models.TagAlertRoute.tag == tag).delete()
+    db.commit()
+    return {"ok": True}
+
+
 @app.post("/credentials/{finding_id}/verify")
 def verify_credential_finding(
     finding_id: int, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_analyst_or_admin)
@@ -2160,6 +2250,9 @@ def dashboard(
     # --- Etiquetas / grupos ---
     host_tags_by_id = {h.id: sorted(t.tag for t in h.tags) for h in hosts}
     group_rows = compute_tag_groups(hosts)
+    alert_route_by_tag = {r.tag: r for r in db.query(models.TagAlertRoute).all()}
+    for g in group_rows:
+        g["route"] = alert_route_by_tag.get(g["tag"])
 
     # --- Claves API (integraciones externas) ---
     api_keys = db.query(models.ApiKey).order_by(models.ApiKey.id.desc()).all()

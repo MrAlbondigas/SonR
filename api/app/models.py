@@ -175,6 +175,17 @@ class HostTag(Base):
     host = relationship("Host", back_populates="tags")
 
 
+class TagAlertRoute(Base):
+    __tablename__ = "tag_alert_routes"
+
+    id = Column(Integer, primary_key=True)
+    tag = Column(Text, nullable=False, unique=True)
+    webhook_url = Column(Text)
+    email_to = Column(Text)
+    updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    updated_by = Column(Text)
+
+
 class ApiKey(Base):
     __tablename__ = "api_keys"
 

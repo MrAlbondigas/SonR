@@ -90,3 +90,8 @@ class UserCreate(BaseModel):
     username: str
     password: str
     role: str
+
+
+class TagAlertRouteUpdate(BaseModel):
+    webhook_url: str | None = None
+    email_to: str | None = None

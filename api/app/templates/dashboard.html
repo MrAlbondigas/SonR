@@ -905,7 +905,7 @@
             {% for a in recent_alerts %}
             <tr>
               <td class="num muted">{{ a.sent_at }}</td>
-              <td><span class="badge count">{{ 'Email' if a.channel == 'email' else 'Webhook' }}</span></td>
+              <td><span class="badge count">{% if a.channel.startswith('email') %}Email{% else %}Webhook{% endif %}{% if ':' in a.channel %} ({{ a.channel.split(':', 1)[1] }}){% endif %}</span></td>
               <td>{{ a.description }}</td>
               <td><span class="badge {{ 'count' if a.success else 'sev-medium' }}">{{ 'Entregada' if a.success else 'No entregada' }}</span></td>
             </tr>
@@ -1342,6 +1342,36 @@
         </table>
         </div>
       </section>
+
+      {% if is_admin %}
+      <section>
+        <h2>Alertas por etiqueta</h2>
+        <p class="empty-state" style="margin: 0 0 1rem;">
+          Cada etiqueta puede tener su propio webhook y/o email de destino — se añade al canal global (el admin
+          sigue viendo todo), no lo sustituye. Útil para que el responsable de "producción" reciba solo lo suyo.
+          Deja ambos campos vacíos y guarda para quitar el enrutado de esa etiqueta.
+        </p>
+        <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Etiqueta</th><th>Webhook</th><th>Email</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for g in group_rows %}
+            <tr>
+              <td><span class="badge count">{{ g.tag }}</span></td>
+              <td><input type="text" class="ssh-cred-input" style="width:220px;" id="route-webhook-{{ loop.index }}" placeholder="https://..." value="{{ g.route.webhook_url if g.route else '' }}"></td>
+              <td><input type="text" class="ssh-cred-input" style="width:180px;" id="route-email-{{ loop.index }}" placeholder="equipo@empresa.com" value="{{ g.route.email_to if g.route else '' }}"></td>
+              <td><button class="btn-patch" onclick="saveTagAlertRoute('{{ g.tag }}', {{ loop.index }})">Guardar</button></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="muted">Etiqueta al menos un equipo para poder configurar su enrutado.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </section>
+      {% endif %}
     </div>
 
     <!-- Vulnerabilidades -->
@@ -2050,6 +2080,23 @@
       location.reload();
     } catch (err) {
       alert("No se pudieron guardar las etiquetas.");
+    }
+  }
+
+  async function saveTagAlertRoute(tag, rowIndex) {
+    const webhookUrl = document.getElementById("route-webhook-" + rowIndex).value.trim();
+    const emailTo = document.getElementById("route-email-" + rowIndex).value.trim();
+    try {
+      const resp = await fetch("/tags/" + encodeURIComponent(tag) + "/alert-route", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ webhook_url: webhookUrl, email_to: emailTo }),
+      });
+      if (!resp.ok) throw new Error("failed");
+      location.hash = "grupos";
+      location.reload();
+    } catch (err) {
+      alert("No se pudo guardar el enrutado de alertas para esa etiqueta.");
     }
   }
 

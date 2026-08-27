@@ -191,6 +191,15 @@ CREATE TABLE api_keys (
     revoked_at TIMESTAMPTZ
 );
 
+CREATE TABLE tag_alert_routes (
+    id SERIAL PRIMARY KEY,
+    tag TEXT UNIQUE NOT NULL,
+    webhook_url TEXT,
+    email_to TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_by TEXT
+);
+
 CREATE INDEX idx_software_host ON software(host_id);
 CREATE INDEX idx_host_tags_host ON host_tags(host_id);
 CREATE INDEX idx_host_tags_tag ON host_tags(tag);

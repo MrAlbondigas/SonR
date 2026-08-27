@@ -44,6 +44,7 @@ base de datos SQLite aislada — nunca tocan los datos reales de Postgres.
 - [x] Fase 6: etiquetado de equipos y riesgo agregado por grupo (unidad de negocio, entorno, ubicación)
 - [x] Fase 7: claves API de solo lectura para integraciones externas, resumen periódico automático por email/webhook
 - [x] Fase 8: rol "analista" (RBAC de tres niveles) y gestión de usuarios desde el dashboard
+- [x] Fase 9: enrutado de alertas por etiqueta (webhook/email propio por unidad de negocio, entorno o ubicación)
 
 ## Precisión del cruce con NVD
 
@@ -123,6 +124,10 @@ puede tener varias) desde el Inventario. La vista de Grupos agrega el riesgo (pu
 vulnerabilidades abiertas, credenciales encontradas) por etiqueta, para poder responder preguntas como "¿cuál
 es el riesgo de los equipos de producción?" sin tener que revisar equipo por equipo — el tipo de vista que
 esperaría un responsable de una unidad de negocio, no solo el equipo técnico.
+
+Cada etiqueta puede tener además su propio webhook y/o email de destino (vista Grupos → "Alertas por
+etiqueta"). No sustituye a los canales globales — los complementa: el admin sigue viendo todas las alertas,
+y quien reciba el canal de "producción" recibe solo las suyas, sin ruido del resto de la red.
 
 ## Limitaciones conocidas
 
