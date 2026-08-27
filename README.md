@@ -7,7 +7,7 @@ Plataforma de gestión de vulnerabilidades para la red local: descubre equipos, 
 ## Arquitectura
 
 - **db** — PostgreSQL, almacena inventario de equipos, software detectado y vulnerabilidades.
-- **api** — FastAPI, expone endpoints de consulta, autenticación con roles (admin/viewer) y recibe los resultados del escáner.
+- **api** — FastAPI, expone endpoints de consulta, autenticación con roles (admin/analista/visor) y recibe los resultados del escáner.
 - **scanner** — Python + nmap, descubre equipos en la red local (`network_mode: host`) y envía los resultados a la API.
 - **enricher** — cruza cada software detectado con la API de NVD (CVEs) y el catálogo CISA KEV (exploits activamente explotados).
 - **credcheck** — prueba credenciales por defecto muy conocidas y documentadas contra SSH/FTP/Telnet/HTTP Basic Auth expuestos, priorizando las específicas del fabricante detectado (por MAC) antes que la lista genérica.
@@ -43,6 +43,7 @@ base de datos SQLite aislada — nunca tocan los datos reales de Postgres.
 - [x] Fase 5: cruce exacto por CPE contra NVD, escaneo autenticado por SSH, lista de credenciales por defecto ampliada, verificación no destructiva de PoC en equipos de prácticas, plazos de remediación (SLA) por severidad, alertas por email además de webhook, cifrado en reposo de credenciales guardadas
 - [x] Fase 6: etiquetado de equipos y riesgo agregado por grupo (unidad de negocio, entorno, ubicación)
 - [x] Fase 7: claves API de solo lectura para integraciones externas, resumen periódico automático por email/webhook
+- [x] Fase 8: rol "analista" (RBAC de tres niveles) y gestión de usuarios desde el dashboard
 
 ## Precisión del cruce con NVD
 
@@ -106,6 +107,14 @@ corto por los mismos canales (webhook/email): equipos monitorizados, vulnerabili
 los últimos 7 días, cuántas están fuera de plazo (SLA) ahora mismo, y credenciales por defecto encontradas.
 Es el recordatorio que te llega al buzón sin tener que entrar al dashboard — también se puede disparar a mano
 desde la vista de Alertas para probarlo.
+
+## Roles de equipo
+
+Tres roles, pensados para que la herramienta la use un equipo y no solo una persona: **administrador** (todo,
+incluida la configuración — políticas, credenciales, claves API, usuarios), **analista** (el día a día —
+reconocer y parchear vulnerabilidades, verificar PoC — sin poder tocar configuración ni gestionar el equipo) y
+**visor** (solo lectura). Un administrador crea y elimina usuarios desde la vista "Usuarios"; las contraseñas
+se guardan con el mismo hash bcrypt que ya usaba la cuenta inicial, nunca en texto plano.
 
 ## Grupos y etiquetas
 

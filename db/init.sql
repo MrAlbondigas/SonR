@@ -2,7 +2,7 @@ CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
-    role TEXT NOT NULL CHECK (role IN ('admin', 'viewer')),
+    role TEXT NOT NULL CHECK (role IN ('admin', 'analyst', 'viewer')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

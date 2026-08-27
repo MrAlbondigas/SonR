@@ -55,6 +55,16 @@ def require_admin(user: models.User = Depends(get_current_user)) -> models.User:
     return user
 
 
+def require_analyst_or_admin(user: models.User = Depends(get_current_user)) -> models.User:
+    """Para acciones operativas del dia a dia (reconocer vulnerabilidades, parchear,
+    verificar PoC...) que no deberian requerir privilegios de administrador completo."""
+    if user.role not in ("admin", "analyst"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Analyst or admin role required"
+        )
+    return user
+
+
 def get_current_user_optional(
     session_token: str | None = Cookie(default=None), db: Session = Depends(get_db)
 ) -> models.User | None:

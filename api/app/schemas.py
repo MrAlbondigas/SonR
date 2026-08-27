@@ -84,3 +84,9 @@ class HostTagsUpdate(BaseModel):
 
 class ApiKeyCreate(BaseModel):
     name: str
+
+
+class UserCreate(BaseModel):
+    username: str
+    password: str
+    role: str

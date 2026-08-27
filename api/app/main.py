@@ -238,6 +238,56 @@ def logout(response: Response):
     return {"ok": True}
 
 
+# --- Gestion de usuarios (equipo) ---
+
+VALID_ROLES = {"admin", "analyst", "viewer"}
+
+
+@app.post("/users")
+def create_user(
+    payload: schemas.UserCreate, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)
+):
+    username = payload.username.strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="El nombre de usuario no puede estar vacio")
+    if payload.role not in VALID_ROLES:
+        raise HTTPException(
+            status_code=400, detail=f"Rol invalido. Debe ser uno de: {', '.join(sorted(VALID_ROLES))}"
+        )
+    if len(payload.password) < 8:
+        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 8 caracteres")
+    if db.query(models.User).filter(models.User.username == username).first():
+        raise HTTPException(status_code=400, detail="Ese nombre de usuario ya existe")
+
+    user = models.User(username=username, password_hash=auth.hash_password(payload.password), role=payload.role)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"id": user.id, "username": user.username, "role": user.role, "created_at": user.created_at}
+
+
+@app.get("/users")
+def list_users(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
+    rows = db.query(models.User).order_by(models.User.id).all()
+    return [{"id": u.id, "username": u.username, "role": u.role, "created_at": u.created_at} for u in rows]
+
+
+@app.delete("/users/{user_id}")
+def delete_user(
+    user_id: int, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)
+):
+    target = db.query(models.User).filter(models.User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.id == admin.id:
+        # el propio require_admin garantiza que quien llama es admin, asi que bloquear
+        # la autoeliminacion ya evita por completo llegar a cero administradores
+        raise HTTPException(status_code=400, detail="No puedes eliminar tu propia cuenta")
+    db.delete(target)
+    db.commit()
+    return {"ok": True}
+
+
 # --- API: hosts ---
 
 
@@ -897,7 +947,7 @@ def update_vulnerability_status(
     vuln_id: int,
     payload: schemas.VulnStatusUpdate,
     db: Session = Depends(get_db),
-    admin: models.User = Depends(auth.require_admin),
+    admin: models.User = Depends(auth.require_analyst_or_admin),
 ):
     vuln = db.query(models.Vulnerability).filter(models.Vulnerability.id == vuln_id).first()
     if not vuln:
@@ -1227,7 +1277,7 @@ def run_ssh_patch(host_ip: str, username: str, password: str, command: str) -> t
 
 
 @app.get("/ssh/hosts")
-def list_ssh_hosts(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
+def list_ssh_hosts(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_analyst_or_admin)):
     hosts = db.query(models.Host).order_by(models.Host.ip).all()
     creds_by_host = {c.host_id: c for c in db.query(models.SSHCredential).all()}
     return [
@@ -1276,7 +1326,7 @@ def delete_ssh_credentials(
 
 
 @app.get("/patch/log")
-def get_patch_log(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
+def get_patch_log(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_analyst_or_admin)):
     rows = db.query(models.PatchLog).order_by(models.PatchLog.id.desc()).limit(20).all()
     return [
         {
@@ -1294,7 +1344,7 @@ def get_patch_log(db: Session = Depends(get_db), admin: models.User = Depends(au
 
 @app.post("/vulnerabilities/{vuln_id}/patch")
 def patch_vulnerability(
-    vuln_id: int, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)
+    vuln_id: int, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_analyst_or_admin)
 ):
     vuln = db.query(models.Vulnerability).filter(models.Vulnerability.id == vuln_id).first()
     if not vuln:
@@ -1495,14 +1545,14 @@ def compute_tag_groups(hosts: list[models.Host]) -> list[dict]:
 
 
 @app.get("/tags")
-def list_tag_groups(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
+def list_tag_groups(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_analyst_or_admin)):
     hosts = db.query(models.Host).order_by(models.Host.ip).all()
     return compute_tag_groups(hosts)
 
 
 @app.post("/credentials/{finding_id}/verify")
 def verify_credential_finding(
-    finding_id: int, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)
+    finding_id: int, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_analyst_or_admin)
 ):
     finding = db.query(models.CredentialFinding).filter(models.CredentialFinding.id == finding_id).first()
     if not finding:
@@ -1540,7 +1590,7 @@ def verify_credential_finding(
 
 @app.post("/vulnerabilities/{vuln_id}/verify-poc")
 def verify_vulnerability_poc(
-    vuln_id: int, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)
+    vuln_id: int, db: Session = Depends(get_db), admin: models.User = Depends(auth.require_analyst_or_admin)
 ):
     vuln = db.query(models.Vulnerability).filter(models.Vulnerability.id == vuln_id).first()
     if not vuln:
@@ -1574,7 +1624,7 @@ def verify_vulnerability_poc(
 
 
 @app.get("/poc/log")
-def get_poc_log(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
+def get_poc_log(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_analyst_or_admin)):
     rows = db.query(models.PocAttempt).order_by(models.PocAttempt.id.desc()).limit(30).all()
     return [
         {
@@ -1620,7 +1670,7 @@ def set_sla_policy(
 
 
 @app.get("/sla/overdue")
-def get_overdue_vulnerabilities(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
+def get_overdue_vulnerabilities(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_analyst_or_admin)):
     now = datetime.now(timezone.utc)
     rows = (
         db.query(models.Vulnerability)
@@ -2114,6 +2164,9 @@ def dashboard(
     # --- Claves API (integraciones externas) ---
     api_keys = db.query(models.ApiKey).order_by(models.ApiKey.id.desc()).all()
 
+    # --- Usuarios (equipo) ---
+    team_users = db.query(models.User).order_by(models.User.id).all()
+
     # --- Verificacion de exploits (PoC) ---
     credential_findings = (
         db.query(models.CredentialFinding).order_by(models.CredentialFinding.found_at.desc()).all()
@@ -2222,7 +2275,9 @@ def dashboard(
             "recent_alerts": recent_alerts,
             "is_authenticated": current_user is not None,
             "is_admin": current_user is not None and current_user.role == "admin",
+            "can_operate": current_user is not None and current_user.role in ("admin", "analyst"),
             "username": current_user.username if current_user else None,
+            "user_role": current_user.role if current_user else None,
             "host_risks": host_risks,
             "host_risk_by_id": host_risk_by_id,
             "network_score": network_score,
@@ -2266,6 +2321,7 @@ def dashboard(
             "host_tags_by_id": host_tags_by_id,
             "group_rows": group_rows,
             "api_keys": api_keys,
+            "team_users": team_users,
         },
     )
 

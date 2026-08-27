@@ -587,13 +587,8 @@
           <span class="label-text">Tendencia</span>
         </a>
 
-        {% if is_admin %}
+        {% if can_operate %}
         <div class="nav-group-label label-text">Sistema</div>
-        <a class="nav-item" data-view="alertas" title="Alertas">
-          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 C8 3 6 6 6 10 V13 L4 17 H20 L18 13 V10 C18 6 16 3 12 3 Z"/><path d="M9.5 20 a2.5 2.5 0 0 0 5 0"/></svg></span>
-          <span class="label-text">Alertas</span>
-          <span class="dot-indicator {{ 'ok' if (webhook_configured or email_configured) else '' }}"></span>
-        </a>
         <a class="nav-item" data-view="parcheo" title="Parcheo">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 3.5 L20.5 9.5 L11 19 L5 19 L5 13 Z"/><path d="M13 5 L19 11"/></svg></span>
           <span class="label-text">Parcheo</span>
@@ -604,10 +599,23 @@
           <span class="label-text">Verificación PoC</span>
           <span class="count">{{ practice_target_count }}</span>
         </a>
+        {% endif %}
+        {% if is_admin %}
+        {% if not can_operate %}<div class="nav-group-label label-text">Sistema</div>{% endif %}
+        <a class="nav-item" data-view="alertas" title="Alertas">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 C8 3 6 6 6 10 V13 L4 17 H20 L18 13 V10 C18 6 16 3 12 3 Z"/><path d="M9.5 20 a2.5 2.5 0 0 0 5 0"/></svg></span>
+          <span class="label-text">Alertas</span>
+          <span class="dot-indicator {{ 'ok' if (webhook_configured or email_configured) else '' }}"></span>
+        </a>
         <a class="nav-item" data-view="integraciones" title="Integraciones">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="7" height="10" rx="1.4"/><rect x="14" y="7" width="7" height="10" rx="1.4"/><path d="M10 12 h4"/></svg></span>
           <span class="label-text">Integraciones</span>
           <span class="count">{{ api_keys|rejectattr('revoked_at')|list|length }}</span>
+        </a>
+        <a class="nav-item" data-view="usuarios" title="Usuarios">
+          <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20 a5.5 5.5 0 0 1 11 0"/><circle cx="17.5" cy="8.5" r="2.4"/><path d="M15.5 12 a4.8 4.8 0 0 1 5 5"/></svg></span>
+          <span class="label-text">Usuarios</span>
+          <span class="count">{{ team_users|length }}</span>
         </a>
         <a class="nav-item" data-view="demo" title="Demo">
           <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3 h6 M10 3 v6.2 L4.6 18.4 A2 2 0 0 0 6.4 21.4 H17.6 A2 2 0 0 0 19.4 18.4 L14 9.2 V3"/><path d="M6.5 15 h11"/></svg></span>
@@ -623,7 +631,7 @@
         <div class="avatar">{{ username[0]|upper }}</div>
         <div class="user-info label-text">
           <div class="user-name">{{ username }}</div>
-          <div class="user-role">{{ 'Administrador' if is_admin else 'Visor' }}</div>
+          <div class="user-role">{{ {'admin': 'Administrador', 'analyst': 'Analista', 'viewer': 'Visor'}.get(user_role, 'Visor') }}</div>
         </div>
       </div>
       {% else %}
@@ -909,7 +917,9 @@
         </div>
       </section>
     </div>
+    {% endif %}
 
+    {% if can_operate %}
     <!-- Parcheo automático -->
     <div class="view" data-view="parcheo">
       <h1>Parcheo automático por SSH</h1>
@@ -919,6 +929,7 @@
         <code>apt-get</code>/<code>yum</code> según el sistema operativo detectado, y registra el resultado abajo.
       </p>
 
+      {% if is_admin %}
       <section>
         <h2>Credenciales SSH</h2>
         <div class="table-wrap">
@@ -943,6 +954,7 @@
         </table>
         </div>
       </section>
+      {% endif %}
 
       <section>
         <h2>Registro de parcheo</h2>
@@ -987,10 +999,14 @@
               <td>{{ h.ip }}{% if h.hostname %} <span class="muted">({{ h.hostname }})</span>{% endif %}</td>
               <td class="muted">{{ h.vendor or "—" }}</td>
               <td>
+                {% if is_admin %}
                 <label class="policy-toggle" style="margin: 0;">
                   <input type="checkbox" onchange="togglePracticeTarget({{ h.id }}, this.checked)" {{ 'checked' if h.is_practice_target else '' }}>
                   {{ 'Sí' if h.is_practice_target else 'No' }}
                 </label>
+                {% else %}
+                <span class="badge count">{{ 'Sí' if h.is_practice_target else 'No' }}</span>
+                {% endif %}
               </td>
             </tr>
             {% else %}
@@ -1072,7 +1088,9 @@
         </div>
       </section>
     </div>
+    {% endif %}
 
+    {% if is_admin %}
     <!-- Demo -->
     <div class="view" data-view="demo">
       <h1>Modo demo</h1>
@@ -1156,6 +1174,73 @@
             </tr>
             {% else %}
             <tr><td colspan="7" class="muted">Todavía no se ha generado ninguna clave API.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- Usuarios (equipo) -->
+    <div class="view" data-view="usuarios">
+      <h1>Usuarios</h1>
+      <p class="empty-state" style="margin: 0 0 1.2rem;">
+        Tres roles: <strong>administrador</strong> (todo, incluida la configuración), <strong>analista</strong>
+        (opera el día a día — reconoce vulnerabilidades, parchea, verifica PoC — pero no toca políticas,
+        credenciales, claves API ni usuarios) y <strong>visor</strong> (solo lectura).
+      </p>
+
+      <section>
+        <h2>Crear usuario</h2>
+        <div class="hud-frame policy-panel">
+          <div class="policy-form">
+            <label class="policy-field">
+              Usuario
+              <input type="text" id="user-new-username" placeholder="nombre de usuario">
+            </label>
+            <label class="policy-field">
+              Contraseña (mínimo 8 caracteres)
+              <input type="password" id="user-new-password" placeholder="contraseña">
+            </label>
+            <label class="policy-field">
+              Rol
+              <select id="user-new-role">
+                <option value="viewer">Visor</option>
+                <option value="analyst">Analista</option>
+                <option value="admin">Administrador</option>
+              </select>
+            </label>
+            <button type="button" class="scan-btn" onclick="createUser()">
+              <span class="spinner"></span>
+              <span id="user-create-label">Crear usuario</span>
+            </button>
+            <div id="user-create-note" class="policy-note"></div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Usuarios existentes</h2>
+        <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Usuario</th><th>Rol</th><th>Creado</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% set role_labels = {'admin': 'Administrador', 'analyst': 'Analista', 'viewer': 'Visor'} %}
+            {% for u in team_users %}
+            <tr>
+              <td>{{ u.username }}{% if u.username == username %} <span class="muted">(tú)</span>{% endif %}</td>
+              <td><span class="badge count">{{ role_labels.get(u.role, u.role) }}</span></td>
+              <td class="muted num">{{ u.created_at }}</td>
+              <td>
+                {% if u.username != username %}
+                <button class="btn-patch danger" onclick="deleteUser({{ u.id }}, '{{ u.username }}')">Eliminar</button>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="muted">No hay usuarios.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -1321,7 +1406,7 @@
         <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>CVE</th><th>Software</th><th>Equipo</th><th>CVSS</th><th>Severidad</th><th>Detectada</th><th>Estado</th>{% if is_admin %}<th>Parcheo</th>{% endif %}</tr>
+            <tr><th>CVE</th><th>Software</th><th>Equipo</th><th>CVSS</th><th>Severidad</th><th>Detectada</th><th>Estado</th>{% if can_operate %}<th>Parcheo</th>{% endif %}</tr>
           </thead>
           <tbody>
             {% set sev_labels = {'critical': 'Crítica', 'high': 'Alta', 'medium': 'Media', 'low': 'Baja'} %}
@@ -1337,7 +1422,7 @@
               <td>{% if v.severity %}<span class="badge sev-{{ v.severity }}">{{ sev_labels.get(v.severity, v.severity) }}</span>{% else %}—{% endif %}</td>
               <td class="muted num">{{ v.detected_at }}</td>
               <td>
-                {% if is_admin %}
+                {% if can_operate %}
                 <select class="status-select" data-vuln-id="{{ v.id }}" onchange="updateVulnStatus(this)">
                   {% for key, label in vuln_status_labels.items() %}
                   <option value="{{ key }}" {{ 'selected' if v.status == key else '' }}>{{ label }}</option>
@@ -1347,7 +1432,7 @@
                 <span class="badge count">{{ vuln_status_labels.get(v.status, v.status) }}</span>
                 {% endif %}
               </td>
-              {% if is_admin %}
+              {% if can_operate %}
               <td>
                 {% if v.software.host_id in patchable_host_ids %}
                 <button class="btn-patch" data-vuln-id="{{ v.id }}" onclick="patchVulnerability(this)">Parchear por SSH</button>
@@ -1988,6 +2073,46 @@
       label.textContent = "Generar clave";
     } catch (err) {
       label.textContent = "Error, reintenta";
+    }
+  }
+
+  async function createUser() {
+    const usernameInput = document.getElementById("user-new-username");
+    const passwordInput = document.getElementById("user-new-password");
+    const roleSelect = document.getElementById("user-new-role");
+    const label = document.getElementById("user-create-label");
+    const note = document.getElementById("user-create-note");
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value;
+
+    label.textContent = "Creando...";
+    note.textContent = "";
+    try {
+      const resp = await fetch("/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: username, password: password, role: roleSelect.value }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || "failed");
+      location.hash = "usuarios";
+      location.reload();
+    } catch (err) {
+      label.textContent = "Crear usuario";
+      note.textContent = typeof err.message === "string" ? err.message : "No se pudo crear el usuario.";
+    }
+  }
+
+  async function deleteUser(userId, username) {
+    if (!confirm("¿Eliminar a " + username + "? Perderá acceso de inmediato.")) return;
+    try {
+      const resp = await fetch("/users/" + userId, { method: "DELETE" });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || "failed");
+      location.hash = "usuarios";
+      location.reload();
+    } catch (err) {
+      alert(typeof err.message === "string" ? err.message : "No se pudo eliminar el usuario.");
     }
   }
 
