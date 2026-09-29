@@ -12,6 +12,7 @@ Plataforma de gestión de vulnerabilidades para la red local: descubre equipos, 
 - **enricher** — cruza cada software detectado con la API de NVD (CVEs) y el catálogo CISA KEV (exploits activamente explotados).
 - **credcheck** — prueba credenciales por defecto muy conocidas y documentadas contra SSH/FTP/Telnet/HTTP Basic Auth expuestos, priorizando las específicas del fabricante detectado (por MAC) antes que la lista genérica.
 - **reporter** — genera un reporte PDF semanal (top prioridades, plazos SLA vencidos, rutas de ataque, credenciales encontradas, timeline, riesgo por grupo, cumplimiento CIS) descargable desde el dashboard, y dispara el resumen periódico por webhook/email en el mismo ciclo.
+- **mcp** — servidor MCP (Model Context Protocol) que envuelve `/api/v1/export` en varias herramientas de solo lectura, para poder consultar la herramienta directamente desde Claude.
 - **dashboard** — servido por la propia API (plantillas Jinja2), muestra inventario, prioridades, rutas de ataque y timeline en tiempo real.
 
 ## Uso
@@ -39,7 +40,7 @@ base de datos SQLite aislada — nunca tocan los datos reales de Postgres.
 - [x] Fase 1: core (BBDD, API, escáner básico, dashboard, login)
 - [x] Fase 2: cruce con CVEs (NVD), verificación de exploits públicos (CISA KEV), timeline de cambios, priorización top-5
 - [x] Fase 3: credenciales por defecto (SSH/FTP/HTTP Basic), fingerprinting de fabricante por MAC, rutas de ataque
-- [x] Fase 4: reportes PDF programados (semanal). Asistente de chat pendiente — necesita una API key de Anthropic propia del proyecto (no incluida por decisión del alumno)
+- [x] Fase 4: reportes PDF programados (semanal)
 - [x] Fase 5: cruce exacto por CPE contra NVD, escaneo autenticado por SSH, lista de credenciales por defecto ampliada, verificación no destructiva de PoC en equipos de prácticas, plazos de remediación (SLA) por severidad, alertas por email además de webhook, cifrado en reposo de credenciales guardadas
 - [x] Fase 6: etiquetado de equipos y riesgo agregado por grupo (unidad de negocio, entorno, ubicación)
 - [x] Fase 7: claves API de solo lectura para integraciones externas, resumen periódico automático por email/webhook
@@ -49,6 +50,7 @@ base de datos SQLite aislada — nunca tocan los datos reales de Postgres.
 - [x] Fase 11: el reporte PDF semanal y la API de solo lectura (/api/v1/export) incorporan SLA, riesgo por grupo y cumplimiento CIS — el mismo dato que se ve en el dashboard, ahora también en todo lo que sale de la herramienta hacia fuera
 - [x] Fase 12: el resumen periódico también se enruta por etiqueta, además de las alertas individuales
 - [x] Fase 13: escaneo multi-red (varios CIDR privados configurables, además de la subred local detectada automáticamente)
+- [x] Fase 14: servidor MCP con herramientas de solo lectura, para consultar la herramienta directamente desde Claude — sin necesitar una API key propia de Anthropic, a diferencia del asistente de chat descartado en la Fase 4
 
 ## Precisión del cruce con NVD
 
@@ -153,6 +155,24 @@ Política de escaneo) — por ejemplo, una VLAN de invitados o una subred de ser
 escanea todas las redes configuradas y deduplica los equipos que aparezcan visibles desde más de una. Por
 seguridad, cada red adicional debe ser un rango privado (RFC1918) y de tamaño razonable (máximo /16) — nunca
 un rango público: esta herramienta evalúa redes propias, no habilita escaneo masivo de internet.
+
+## Servidor MCP (usar la herramienta desde Claude)
+
+El servicio `mcp` expone la herramienta como un servidor [MCP](https://modelcontextprotocol.io) accesible
+por HTTP en `http://<ip-del-servidor>:8010/mcp`, con cinco herramientas de solo lectura:
+`resumen_seguridad`, `listar_equipos`, `listar_vulnerabilidades_abiertas`, `riesgo_por_grupo` y
+`estado_cumplimiento`. Todas envuelven el mismo endpoint `/api/v1/export`, autenticadas con una clave de
+solo lectura (nunca la clave interna del escáner, que tiene permiso de escritura).
+
+**Configuración:**
+1. Con el dashboard ya desplegado, generar una clave desde la vista "Integraciones" (solo lectura).
+2. Añadir esa clave como `MCP_API_KEY` en `.env` y reiniciar el servicio: `docker compose up -d --build mcp`.
+3. En Claude Desktop / Claude Code, añadir un servidor MCP remoto apuntando a
+   `http://<ip-del-servidor>:8010/mcp` (transporte `streamable-http`).
+
+Al no necesitar una API key propia de Anthropic —el modelo lo pone el cliente MCP (Claude) al conectarse,
+no el servidor—, esto resuelve la limitación que tenía el asistente de chat original, descartado en su
+momento precisamente por esa razón.
 
 ## Limitaciones conocidas
 

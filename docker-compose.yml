@@ -84,6 +84,17 @@ services:
     volumes:
       - reports_data:/app/reports
 
+  mcp:
+    build: ./mcp
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      PROYECTO_CYBER_URL: http://api:8000
+      PROYECTO_CYBER_API_KEY: ${MCP_API_KEY:-}
+    ports:
+      - "8010:8000"
+
 volumes:
   db_data:
   reports_data:
