@@ -1,6 +1,6 @@
-# Proyecto Cyber — Escáner de vulnerabilidades de red
+# SonR — Escáner de vulnerabilidades de red
 
-[![Tests](https://github.com/MrAlbondigas/-proyecto-cyber/actions/workflows/tests.yml/badge.svg)](https://github.com/MrAlbondigas/-proyecto-cyber/actions/workflows/tests.yml)
+[![Tests](https://github.com/MrAlbondigas/SonR/actions/workflows/tests.yml/badge.svg)](https://github.com/MrAlbondigas/SonR/actions/workflows/tests.yml)
 
 Plataforma de gestión de vulnerabilidades para la red local: descubre equipos, identifica software y versiones en ejecución, cruza contra vulnerabilidades conocidas y expone los resultados en un dashboard web.
 

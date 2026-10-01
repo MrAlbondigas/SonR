@@ -3,14 +3,14 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: proyecto_cyber
+      POSTGRES_DB: sonr
       POSTGRES_USER: cyber
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - db_data:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cyber -d proyecto_cyber"]
+      test: ["CMD-SHELL", "pg_isready -U cyber -d sonr"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -22,7 +22,7 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://cyber:${DB_PASSWORD}@db:5432/proyecto_cyber
+      DATABASE_URL: postgresql://cyber:${DB_PASSWORD}@db:5432/sonr
       JWT_SECRET: ${JWT_SECRET}
       SCANNER_API_KEY: ${SCANNER_API_KEY}
       ADMIN_USERNAME: ${ADMIN_USERNAME}
@@ -32,7 +32,7 @@ services:
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      ALERT_EMAIL_FROM: ${ALERT_EMAIL_FROM:-proyecto-cyber@localhost}
+      ALERT_EMAIL_FROM: ${ALERT_EMAIL_FROM:-sonr@localhost}
       ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-}
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY}
     ports:
@@ -90,8 +90,8 @@ services:
     depends_on:
       - api
     environment:
-      PROYECTO_CYBER_URL: http://api:8000
-      PROYECTO_CYBER_API_KEY: ${MCP_API_KEY:-}
+      SONR_URL: http://api:8000
+      SONR_API_KEY: ${MCP_API_KEY:-}
     ports:
       - "8010:8000"
 

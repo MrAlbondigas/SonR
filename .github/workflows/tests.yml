@@ -25,7 +25,7 @@ jobs:
       - name: Ejecutar tests
         run: pytest app/tests -v
         env:
-          DATABASE_URL: sqlite:///./test_proyecto_cyber.db
+          DATABASE_URL: sqlite:///./test_sonr.db
           JWT_SECRET: ci-test-secret
           SCANNER_API_KEY: ci-test-scanner-key
           ADMIN_USERNAME: ci-admin

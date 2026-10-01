@@ -1,8 +1,8 @@
 import os
 from unittest.mock import patch, MagicMock
 
-os.environ.setdefault("PROYECTO_CYBER_API_KEY", "test-key")
-os.environ.setdefault("PROYECTO_CYBER_URL", "http://api:8000")
+os.environ.setdefault("SONR_API_KEY", "test-key")
+os.environ.setdefault("SONR_URL", "http://api:8000")
 
 import server  # noqa: E402
 

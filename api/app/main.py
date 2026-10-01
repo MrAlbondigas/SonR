@@ -21,7 +21,7 @@ from .database import Base, engine, get_db
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Proyecto Cyber - Network Vulnerability Scanner")
+app = FastAPI(title="SonR - Network Vulnerability Scanner")
 templates = Jinja2Templates(directory="app/templates")
 
 SCANNER_API_KEY = os.environ["SCANNER_API_KEY"]
@@ -29,7 +29,7 @@ REPORTS_DIR = "/app/reports"
 SERVICE_REMOVAL_THRESHOLD = 3
 ALERT_WEBHOOK_URL = os.environ.get("ALERT_WEBHOOK_URL", "").strip()
 ALERT_EMAIL_TO = os.environ.get("ALERT_EMAIL_TO", "").strip()
-ALERT_EMAIL_FROM = os.environ.get("ALERT_EMAIL_FROM", "proyecto-cyber@localhost").strip()
+ALERT_EMAIL_FROM = os.environ.get("ALERT_EMAIL_FROM", "sonr@localhost").strip()
 SMTP_HOST = os.environ.get("SMTP_HOST", "").strip()
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587") or "587")
 SMTP_USER = os.environ.get("SMTP_USER", "").strip()
@@ -77,7 +77,7 @@ def send_email_alert(
     message: str,
     vulnerability_id: int | None = None,
     host_id: int | None = None,
-    subject: str = "Proyecto Cyber — alerta de seguridad",
+    subject: str = "SonR — alerta de seguridad",
     email_to: str | None = None,
     channel: str = "email",
 ) -> bool:
@@ -933,7 +933,7 @@ def webhook_status(db: Session = Depends(get_db)):
 @app.post("/webhook/test")
 def webhook_test(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
     success = send_webhook_alert(
-        db, f"✅ Prueba de webhook desde Proyecto Cyber, enviada por {admin.username}."
+        db, f"✅ Prueba de webhook desde SonR, enviada por {admin.username}."
     )
     return {"ok": True, "configured": bool(ALERT_WEBHOOK_URL), "delivered": success}
 
@@ -951,7 +951,7 @@ def email_status(db: Session = Depends(get_db)):
 @app.post("/email/test")
 def email_test(db: Session = Depends(get_db), admin: models.User = Depends(auth.require_admin)):
     success = send_email_alert(
-        db, f"Prueba de alerta por email desde Proyecto Cyber, enviada por {admin.username}."
+        db, f"Prueba de alerta por email desde SonR, enviada por {admin.username}."
     )
     return {"ok": True, "configured": EMAIL_CONFIGURED, "delivered": success}
 
@@ -2100,7 +2100,7 @@ def download_latest_report():
     path = os.path.join(REPORTS_DIR, "latest.pdf")
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Todavia no se ha generado ningun reporte")
-    return FileResponse(path, media_type="application/pdf", filename="proyecto-cyber-reporte.pdf")
+    return FileResponse(path, media_type="application/pdf", filename="sonr-reporte.pdf")
 
 
 # --- Resumen periodico por email/webhook (lo dispara el servicio reporter en cada ciclo) ---
@@ -2148,7 +2148,7 @@ def build_digest_summary(db: Session, tag: str | None = None) -> dict:
 def format_digest_message(summary: dict, tag: str | None = None) -> str:
     scope = f" (grupo: {tag})" if tag else ""
     return (
-        f"Resumen semanal de Proyecto Cyber{scope} — {summary['host_count']} equipos monitorizados.\n"
+        f"Resumen semanal de SonR{scope} — {summary['host_count']} equipos monitorizados.\n"
         f"Nuevas vulnerabilidades (7d): {summary['new_vulnerabilities_7d']} "
         f"({summary['new_critical_7d']} críticas). Resueltas (7d): {summary['resolved_7d']}.\n"
         f"Fuera de plazo (SLA) ahora mismo: {summary['overdue_sla_count']}. "
@@ -2159,7 +2159,7 @@ def format_digest_message(summary: dict, tag: str | None = None) -> str:
 def run_digest_cycle(db: Session) -> dict:
     summary = build_digest_summary(db)
     message = format_digest_message(summary)
-    delivered = notify_alert(db, message, email_subject="Resumen semanal — Proyecto Cyber")
+    delivered = notify_alert(db, message, email_subject="Resumen semanal — SonR")
 
     # ademas del resumen global, cada etiqueta con un destino de alertas configurado
     # recibe su propio resumen, limitado a sus equipos (mismo principio que el enrutado

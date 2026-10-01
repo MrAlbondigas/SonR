@@ -3,13 +3,13 @@ import os
 import requests
 from mcp.server.mcpserver import MCPServer
 
-API_URL = os.environ.get("PROYECTO_CYBER_URL", "http://api:8000").rstrip("/")
-API_KEY = os.environ["PROYECTO_CYBER_API_KEY"]
+API_URL = os.environ.get("SONR_URL", "http://api:8000").rstrip("/")
+API_KEY = os.environ["SONR_API_KEY"]
 
 mcp = MCPServer(
-    name="Proyecto Cyber",
+    name="SonR",
     instructions=(
-        "Herramientas de solo lectura sobre Proyecto Cyber, una plataforma de gestion de "
+        "Herramientas de solo lectura sobre SonR, una plataforma de gestion de "
         "vulnerabilidades de red. Permiten consultar el inventario de equipos, las "
         "vulnerabilidades abiertas, el riesgo agregado por grupo y el estado de cumplimiento "
         "de una red monitorizada. Ninguna de estas herramientas modifica datos ni ejecuta "
