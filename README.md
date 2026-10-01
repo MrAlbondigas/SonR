@@ -18,6 +18,8 @@ Plataforma de gestión de vulnerabilidades para la red local: descubre equipos, 
 ## Uso
 
 ```bash
+git clone https://github.com/MrAlbondigas/SonR.git
+cd SonR
 cp .env.example .env   # editar con valores propios
 docker compose up -d --build
 ```
